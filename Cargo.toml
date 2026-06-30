@@ -1,0 +1,29 @@
+[package]
+name = "primatic-tools"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+# Windows-only deps. Gated on cfg(windows) so the Linux host build (`cargo build`,
+# `cargo test`, `yarn dev`) still compiles the stub `main`, while the real product
+# builds with `--target x86_64-pc-windows-gnu` (where cfg(windows) is true).
+# windows-reactor is not published to crates.io; pull it from the windows-rs repo.
+[target.'cfg(windows)'.dependencies]
+windows-reactor = { git = "https://github.com/microsoft/windows-rs" }
+tray-icon = "0.19"
+# Win32 show/hide for the tray↔window toggle. Reactor's own AppWindow bindings
+# are pub(crate), so drive visibility through the top-level HWND instead.
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    # CreateMutexW (Threading) takes a SECURITY_ATTRIBUTES* — windows-sys gates the
+    # fn behind Win32_Security too, so both are required for the single-instance guard.
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# windows-reactor catches panics at FFI boundaries, but the global default must
+# still be abort: unwinding through WinUI 3's C++ frames is undefined behavior.
+[profile.release]
+panic = "abort"

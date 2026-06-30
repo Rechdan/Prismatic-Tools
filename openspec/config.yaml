@@ -1,0 +1,47 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating artifacts.
+context: |
+  Prismatic Tools: a Windows 11 system-tray desktop app that opens a WinUI 3
+  window (Mica backdrop, OS-matched light/dark) hosting individual tools. Built
+  on the pure-Rust `windows-reactor` crate — declarative WinUI 3, no XAML.
+
+  Stack & build:
+  - Rust 1.96.0, edition 2024 (pinned in `rust-toolchain.toml`). The product is
+    `cfg(windows)`-only and is cross-built for
+    `x86_64-pc-windows-gnu` from a WSL2 Linux host via `scripts/winrun.py`
+    (no Visual Studio / MSVC). Plain `cargo build`/`cargo run` on Linux compiles
+    only a stub `main` — it does not produce the app.
+  - Windows deps live under `[target.'cfg(windows)'.dependencies]`:
+    `windows-reactor` (git), `tray-icon`, `windows-sys`.
+  - Release builds require `[profile.release] panic = "abort"` (unwinding into
+    WinUI's C++ frames is UB).
+  - There are no tests. Node tooling (nodemon, `@fission-ai/openspec`) is dev-only;
+    there is no JavaScript application code.
+
+  Architecture (two thin Rust modules, both `cfg(windows)`-gated):
+  - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the
+    tool-rendering surface (currently one hardcoded demo tool standing in for
+    future plugin tools).
+  - `src/window.rs` — the themed `windows-reactor` window plus Win32 HWND
+    show/hide/toggle. A startup CBT hook claims the window at creation and
+    suppresses its first show (flash-free launch); the HWND subclass both holds
+    that suppression and turns `WM_CLOSE` into hide-to-tray.
+
+  Tray-resident lifecycle: starts hidden, the tray toggles the window, the
+  title-bar X hides to tray (does not exit), a single-instance mutex drops
+  duplicate launches, and only the tray "Exit" item terminates.
+
+  Note: the Cargo crate name is `primatic-tools` (missing the first "s"); the npm
+  package is `prismatic-tools`. Keep both as-is unless asked to rename.
+
+# Per-artifact rules — custom rules for specific artifacts.
+rules:
+  proposal:
+    - State whether the change touches Windows-only (`cfg(windows)`) code, the
+      cross-build/staging path (`scripts/winrun.py`), or the dev-only Node layer.
+    - Include a "Non-goals" section.
+  tasks:
+    - Keep the Linux host stub building green (`cargo build`/`cargo test`); never
+      assume a Windows build host.
+    - Note when a task can only be verified on Windows via `python3 scripts/winrun.py`.

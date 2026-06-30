@@ -1,0 +1,17 @@
+{
+  "name": "prismatic-tools",
+  "version": "1.0.0",
+  "author": "Nelson Faiçal Rechdan <rechdanfr@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "nodemon -w \"./src\" -e \"*\" -x \"yarn dev:run\"",
+    "dev:run": "cargo run",
+    "win": "python3 scripts/winrun.py",
+    "win:release": "python3 scripts/winrun.py --release"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "1.5.0",
+    "nodemon": "3.1.14"
+  }
+}

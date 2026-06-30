@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.96.0"
+# Cross-build target for the Windows product (see scripts/winrun.py). Plain
+# `cargo build` on the WSL host uses the default Linux target (stub main).
+targets = ["x86_64-pc-windows-gnu"]
