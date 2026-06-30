@@ -21,8 +21,10 @@ context: |
 
   Architecture (two thin Rust modules, both `cfg(windows)`-gated):
   - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the
-    tool-rendering surface (currently one hardcoded demo tool standing in for
-    future plugin tools).
+    tool-rendering surface: a persistent app header (app name on the left; a
+    `Configs` button and a `GitHub` repo-link button pinned right via a two-column
+    grid; window-edge padding) above a hardcoded demo tool standing in for future
+    plugin tools. The header is its own capability (`openspec/specs/app-header/`).
   - `src/window.rs` — the themed `windows-reactor` window plus Win32 HWND
     show/hide/toggle. A startup CBT hook claims the window at creation and
     suppresses its first show (flash-free launch); the HWND subclass both holds

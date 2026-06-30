@@ -56,13 +56,39 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     });
 
     let (count, set_count) = cx.use_state(0_i32);
+    // Outer padded column: a persistent app header on top, then the hosted tool
+    // (`app-header` spec). The `.padding(..)` insets every child from the window
+    // border so nothing sits flush against the Mica edges.
     vstack((
-        text_block("Prismatic Tools").font_size(22.0).bold(),
+        // Header row: app name on the left, action buttons pinned to the far
+        // right. A two-column grid — a star-sized first column (the name) eats
+        // the free space, an auto-sized second column (the buttons) hugs the
+        // right edge — gives the space-between layout (`hstack` only left-packs).
+        // The name lives here now (the tool no longer repeats it). The GitHub
+        // `HyperlinkButton` opens the repo page in the default browser;
+        // "Configs" is a placeholder until a real config surface lands.
+        grid((
+            text_block("Prismatic Tools")
+                .font_size(20.0)
+                .bold()
+                .grid_column(0)
+                .vertical_alignment(VerticalAlignment::Center),
+            hstack((
+                button("Configs").on_click(|| {}),
+                HyperlinkButton::new("GitHub")
+                    .navigate_uri("https://github.com/Rechdan/Prismatic-Tools"),
+            ))
+            .spacing(8.0)
+            .grid_column(1),
+        ))
+        .columns([GridLength::Star(1.0), GridLength::Auto])
+        .column_spacing(8.0),
         text_block("Demo tool — proves the host render/state loop."),
         text_block(format!("clicks: {count}")),
         button("Click me").on_click(move || set_count.call(count + 1)),
     ))
     .spacing(12.0)
+    .padding(16.0)
     .into()
 }
 
