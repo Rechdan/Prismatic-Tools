@@ -9,6 +9,8 @@
 #[cfg(windows)]
 mod shell;
 #[cfg(windows)]
+mod widget;
+#[cfg(windows)]
 mod window;
 
 #[cfg(windows)]

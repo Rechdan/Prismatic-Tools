@@ -9,6 +9,7 @@ use windows_reactor::*;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 
+use crate::widget;
 use crate::window;
 
 /// Session-scoped mutex name guarding against a second running instance.
@@ -39,8 +40,9 @@ fn brand_icon() -> Icon {
     Icon::from_rgba(rgba, 16, 16).expect("brand icon")
 }
 
-/// The hosted tool surface. For the bootstrap shell this is one hardcoded demo
-/// tool that proves the host → tool render/state loop (`tool-surface` spec).
+/// The hosted tool surface: the persistent app header above the loaded widget
+/// (`tool-surface`, `app-header`, `widget-runtime` specs). The first widget found
+/// in `widgets/` (beside the exe) is loaded once and rendered below the header.
 fn tool_surface(cx: &mut RenderCx) -> Element {
     // No window on launch (`tray-presence` spec): the startup CBT hook already
     // claimed the window at creation — subclassing it to suppress shows, so
@@ -55,8 +57,27 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
         window::hide();
     });
 
-    let (count, set_count) = cx.use_state(0_i32);
-    // Outer padded column: a persistent app header on top, then the hosted tool
+    // The hosted widget persists across renders in a `use_ref`, loaded once on the
+    // first render. `tick` is the re-render trigger a widget callback bumps after
+    // mutating its Lua state (the widget's own state lives inside its VM).
+    let (tick, set_tick) = cx.use_state(0_u32);
+    // Fully-qualified: `use windows_reactor::*` shadows std `Result` with reactor's
+    // one-arg alias, so name the two-arg std form explicitly here.
+    let slot = cx.use_ref(None::<std::result::Result<widget::LoadedWidget, widget::WidgetError>>);
+    if slot.borrow().is_none() {
+        *slot.borrow_mut() = Some(widget::load_first());
+    }
+    // A broken/absent widget only replaces this content area; the header stays.
+    let content: Element = match &*slot.borrow() {
+        Some(Ok(w)) => w.render(&set_tick, tick),
+        // A benign "no widget" state reads as a plain notice; a real failure is
+        // marked as an error.
+        Some(Err(e)) if e.is_empty_notice() => text_block(e.to_string()).into(),
+        Some(Err(e)) => text_block(format!("⚠ {e}")).into(),
+        None => text_block(String::new()).into(),
+    };
+
+    // Outer padded column: the persistent app header on top, then the widget
     // (`app-header` spec). The `.padding(..)` insets every child from the window
     // border so nothing sits flush against the Mica edges.
     vstack((
@@ -64,8 +85,7 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
         // right. A two-column grid — a star-sized first column (the name) eats
         // the free space, an auto-sized second column (the buttons) hugs the
         // right edge — gives the space-between layout (`hstack` only left-packs).
-        // The name lives here now (the tool no longer repeats it). The GitHub
-        // `HyperlinkButton` opens the repo page in the default browser;
+        // The GitHub `HyperlinkButton` opens the repo page in the default browser;
         // "Configs" is a placeholder until a real config surface lands.
         grid((
             text_block("Prismatic Tools")
@@ -83,9 +103,7 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
         ))
         .columns([GridLength::Star(1.0), GridLength::Auto])
         .column_spacing(8.0),
-        text_block("Demo tool — proves the host render/state loop."),
-        text_block(format!("clicks: {count}")),
-        button("Click me").on_click(move || set_count.call(count + 1)),
+        content,
     ))
     .spacing(12.0)
     .padding(16.0)

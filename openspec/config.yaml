@@ -7,30 +7,39 @@ context: |
   on the pure-Rust `windows-reactor` crate — declarative WinUI 3, no XAML.
 
   Stack & build:
-  - Rust 1.96.0, edition 2024 (pinned in `rust-toolchain.toml`). The product is
+  - Rust 1.96.0 (channel pinned in `rust-toolchain.toml`), edition 2024 (in
+    `Cargo.toml`). The product is
     `cfg(windows)`-only and is cross-built for
     `x86_64-pc-windows-gnu` from a WSL2 Linux host via `scripts/winrun.py`
     (no Visual Studio / MSVC). Plain `cargo build`/`cargo run` on Linux compiles
     only a stub `main` — it does not produce the app.
   - Windows deps live under `[target.'cfg(windows)'.dependencies]`:
-    `windows-reactor` (git), `tray-icon`, `windows-sys`.
+    `windows-reactor` (git), `tray-icon`, `windows-sys`, `mlua`
+    (`lua54`+`vendored` — the Lua widget runtime), and `toml` (widget manifests).
   - Release builds require `[profile.release] panic = "abort"` (unwinding into
     WinUI's C++ frames is UB).
   - There are no tests. Node tooling (nodemon, `@fission-ai/openspec`) is dev-only;
     there is no JavaScript application code.
 
-  Architecture (two thin Rust modules, both `cfg(windows)`-gated):
+  Architecture (thin Rust modules, all `cfg(windows)`-gated):
   - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the
     tool-rendering surface: a persistent app header (app name on the left; a
     `Configs` button and a `GitHub` repo-link button pinned right via a two-column
-    grid; window-edge padding) above a hardcoded demo tool standing in for future
-    plugin tools. The header is its own capability (`openspec/specs/app-header/`).
+    grid; window-edge padding) above the hosted widget (loaded from `widgets/`).
+    The header is its own capability (`openspec/specs/app-header/`).
   - `src/window.rs` — the themed `windows-reactor` window plus Win32 HWND
     show/hide/toggle, and an 800×600-DIP minimum window size (reactor's
     `App::inner_constraints` builder, not a Win32 subclass). A startup CBT hook
     claims the window at creation and suppresses its first show (flash-free
     launch); the HWND subclass both holds that suppression and turns `WM_CLOSE`
     into hide-to-tray.
+  - `src/widget/` — the Lua widget runtime. `package.rs` resolves the first widget
+    folder in `widgets/` (beside the exe; `widget.toml` manifest, folder name = id)
+    and reads its Lua entry; `runtime.rs` runs it in a sandboxed `mlua` VM (safe
+    libs only — no os/io/debug; `require` scoped to the widget folder) enforcing the
+    `{ state, render }` contract and mapping the declarative `render(state)` table
+    (`vstack`/`hstack`/`text`/`button`) onto reactor elements. Capabilities
+    `openspec/specs/widget-package/` + `widget-runtime/`.
 
   Tray-resident lifecycle: starts hidden, the tray toggles the window, the
   title-bar X hides to tray (does not exit), a single-instance mutex drops

@@ -135,7 +135,14 @@ def stage(profile: str) -> str:
             else:
                 shutil.copy(src, dst)
             staged += 1
-    print(f"staged {staged} runtime entries + bootstrap + manifest -> {dest}")
+    # widgets/ — Lua tool packages loaded at runtime. The app resolves them
+    # relative to the exe, so stage them next to it (dest is wiped each run).
+    widgets_src = os.path.join(ROOT, "widgets")
+    widgets_note = ""
+    if os.path.isdir(widgets_src):
+        shutil.copytree(widgets_src, os.path.join(dest, "widgets"))
+        widgets_note = " + widgets"
+    print(f"staged {staged} runtime entries + bootstrap + manifest{widgets_note} -> {dest}")
     return dest
 
 

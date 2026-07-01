@@ -1,8 +1,5 @@
-# tool-surface Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change bootstrap-tray-shell. Update Purpose after archive.
-## Requirements
 ### Requirement: Host renders a tool inside the window
 
 The shell SHALL render exactly one loaded widget's UI inside the main window's content area, establishing the host→tool rendering surface. The tool is a Lua widget loaded from the `widgets/` folder (see the `widget-package` and `widget-runtime` capabilities); no hardcoded tool remains.
@@ -20,4 +17,3 @@ The loaded widget SHALL include at least one interactive control whose state upd
 
 - **WHEN** the user interacts with the loaded widget's control (e.g., a button)
 - **THEN** the displayed state changes in response, confirming the render/state loop runs through the widget runtime
-

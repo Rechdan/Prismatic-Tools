@@ -12,6 +12,14 @@ edition = "2024"
 [target.'cfg(windows)'.dependencies]
 windows-reactor = { git = "https://github.com/microsoft/windows-rs" }
 tray-icon = "0.19"
+# Lua runtime for widgets (widget-runtime). `vendored` bundles Lua 5.4's C source
+# so there is no system-Lua dependency; the C is cross-compiled by the mingw
+# toolchain for the gnu target. Owned/'static handles (mlua ≥0.9) let a Lua
+# `Function` be captured directly in reactor's `Fn() + 'static` on_click closures.
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+# Widget manifest (`widget.toml`) parsing. Pure Rust, cross-builds cleanly; parsed
+# via `toml::Table` (no serde derive needed for three fields).
+toml = "0.8"
 # Win32 show/hide for the tray↔window toggle. Reactor's own AppWindow bindings
 # are pub(crate), so drive visibility through the top-level HWND instead.
 windows-sys = { version = "0.59", features = [
