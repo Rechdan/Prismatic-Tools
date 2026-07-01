@@ -20,6 +20,9 @@ use super::package::WidgetSource;
 /// table and `render` function. Held across renders in a reactor `use_ref`.
 pub struct LoadedWidget {
     id: String,
+    // The manifest-declared display name (`widget.toml` `name`). Surfaced in the
+    // shell's navigation column; distinct from `id` (the folder name).
+    name: String,
     // Kept alive for the widget's lifetime; the handles below reference this VM.
     _lua: Lua,
     state: Table,
@@ -73,6 +76,7 @@ pub fn load(source: &WidgetSource) -> std::result::Result<LoadedWidget, WidgetEr
 
     Ok(LoadedWidget {
         id: source.id.clone(),
+        name: source.manifest.name.clone(),
         _lua: lua,
         state,
         render,
@@ -81,6 +85,11 @@ pub fn load(source: &WidgetSource) -> std::result::Result<LoadedWidget, WidgetEr
 }
 
 impl LoadedWidget {
+    /// The widget's manifest-declared display name, for the navigation label.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Call `render(state)` and map the result to a reactor element. `set_tick`
     /// bumps a reactor state cell after any callback so the UI re-renders; `tick`
     /// is the current value (a callback stores `tick + 1`).

@@ -5,8 +5,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "dev": "nodemon -w \"./src\" -e \"*\" -x \"yarn dev:run\"",
-    "dev:run": "cargo run",
+    "dev": "nodemon -w \"./src\" -e \"*\" -x \"yarn win\"",
     "win": "python3 scripts/winrun.py",
     "win:release": "python3 scripts/winrun.py --release"
   },

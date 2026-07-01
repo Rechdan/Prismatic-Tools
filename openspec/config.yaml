@@ -25,8 +25,14 @@ context: |
   - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the
     tool-rendering surface: a persistent app header (app name on the left; a
     `Configs` button and a `GitHub` repo-link button pinned right via a two-column
-    grid; window-edge padding) above the hosted widget (loaded from `widgets/`).
-    The header is its own capability (`openspec/specs/app-header/`).
+    grid) on top, and below it a main region that fills the rest — a persistent
+    two-pane layout: a fixed 200-DIP left nav column (a `Tools` heading plus the
+    loaded widget's name as a clickable entry) beside a right container that shows
+    the active widget or a config placeholder view. Active-view selection: the
+    header `Configs` button activates the config view, the nav entry activates the
+    widget view (not a toggle); the body is inset from the window edge via a margin.
+    The header is its own capability (`openspec/specs/app-header/`); the two-pane
+    main region is its own capability (`openspec/specs/main-content-layout/`).
   - `src/window.rs` — the themed `windows-reactor` window plus Win32 HWND
     show/hide/toggle, and an 800×600-DIP minimum window size (reactor's
     `App::inner_constraints` builder, not a Win32 subclass). A startup CBT hook

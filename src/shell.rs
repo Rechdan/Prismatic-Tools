@@ -61,52 +61,96 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     // first render. `tick` is the re-render trigger a widget callback bumps after
     // mutating its Lua state (the widget's own state lives inside its VM).
     let (tick, set_tick) = cx.use_state(0_u32);
+    // Which content the right pane shows: the active widget (`false`) or the
+    // config placeholder (`true`). The header Configs button toggles it
+    // (`app-header`, `main-content-layout` specs); it starts on the widget.
+    let (show_config, set_show_config) = cx.use_state(false);
     // Fully-qualified: `use windows_reactor::*` shadows std `Result` with reactor's
     // one-arg alias, so name the two-arg std form explicitly here.
     let slot = cx.use_ref(None::<std::result::Result<widget::LoadedWidget, widget::WidgetError>>);
     if slot.borrow().is_none() {
         *slot.borrow_mut() = Some(widget::load_first());
     }
-    // A broken/absent widget only replaces this content area; the header stays.
-    let content: Element = match &*slot.borrow() {
-        Some(Ok(w)) => w.render(&set_tick, tick),
+    // The right pane's widget content, plus the loaded widget's name for the nav
+    // column. A broken/absent widget only replaces the right pane and yields no
+    // nav entry; the header and nav heading stay.
+    let (content, nav_name): (Element, Option<String>) = match &*slot.borrow() {
+        Some(Ok(w)) => (w.render(&set_tick, tick), Some(w.name().to_string())),
         // A benign "no widget" state reads as a plain notice; a real failure is
-        // marked as an error.
-        Some(Err(e)) if e.is_empty_notice() => text_block(e.to_string()).into(),
-        Some(Err(e)) => text_block(format!("⚠ {e}")).into(),
-        None => text_block(String::new()).into(),
+        // marked as an error. Neither yields a nav entry.
+        Some(Err(e)) if e.is_empty_notice() => (text_block(e.to_string()).into(), None),
+        Some(Err(e)) => (text_block(format!("⚠ {e}")).into(), None),
+        None => (text_block(String::new()).into(), None),
     };
 
-    // Outer padded column: the persistent app header on top, then the widget
-    // (`app-header` spec). The `.padding(..)` insets every child from the window
-    // border so nothing sits flush against the Mica edges.
-    vstack((
-        // Header row: app name on the left, action buttons pinned to the far
-        // right. A two-column grid — a star-sized first column (the name) eats
-        // the free space, an auto-sized second column (the buttons) hugs the
-        // right edge — gives the space-between layout (`hstack` only left-packs).
-        // The GitHub `HyperlinkButton` opens the repo page in the default browser;
-        // "Configs" is a placeholder until a real config surface lands.
-        grid((
-            text_block("Prismatic Tools")
-                .font_size(20.0)
-                .bold()
-                .grid_column(0)
-                .vertical_alignment(VerticalAlignment::Center),
-            hstack((
-                button("Configs").on_click(|| {}),
-                HyperlinkButton::new("GitHub")
-                    .navigate_uri("https://github.com/Rechdan/Prismatic-Tools"),
-            ))
-            .spacing(8.0)
-            .grid_column(1),
+    // Header row: app name on the left, action buttons pinned to the far right. A
+    // two-column grid — a star-sized first column (the name) eats the free space,
+    // an auto-sized second column (the buttons) hugs the right edge — gives the
+    // space-between layout (`hstack` only left-packs). The GitHub `HyperlinkButton`
+    // opens the repo page in the default browser; "Configs" activates the config
+    // view in the right pane (`app-header` spec) — it selects the config view
+    // rather than toggling; the widget view is reached back by clicking the
+    // widget's entry in the nav column.
+    let header: Element = grid((
+        text_block("Prismatic Tools")
+            .font_size(20.0)
+            .bold()
+            .grid_column(0)
+            .vertical_alignment(VerticalAlignment::Center),
+        hstack((
+            button("Configs").on_click(set_show_config.setter(true)),
+            HyperlinkButton::new("GitHub")
+                .navigate_uri("https://github.com/Rechdan/Prismatic-Tools"),
         ))
-        .columns([GridLength::Star(1.0), GridLength::Auto])
-        .column_spacing(8.0),
-        content,
+        .spacing(8.0)
+        .grid_column(1),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .columns([GridLength::Star(1.0), GridLength::Auto])
+    .column_spacing(8.0)
+    .into();
+
+    // Left navigation column: a "Tools" heading plus the loaded widget's name as a
+    // clickable entry that activates the widget view (selecting it also brings the
+    // user back from the config view). Per-widget custom rendering of the entry is
+    // future work. With no widget loaded the heading stands alone
+    // (`main-content-layout` spec).
+    let mut nav_children: Vec<Element> = vec![text_block("Tools").bold().into()];
+    if let Some(name) = nav_name {
+        nav_children.push(button(name).on_click(set_show_config.setter(false)).into());
+    }
+    let nav = vstack(nav_children).spacing(8.0).grid_column(0);
+
+    // Right container: the config placeholder when the config view is active,
+    // otherwise the active widget.
+    let right: Element = (if show_config { config_view() } else { content }).grid_column(1);
+
+    // Main region: a persistent two-pane grid — a fixed 200-DIP nav column beside
+    // a star-sized right container that fills the rest (`main-content-layout` spec).
+    let main: Element = grid((nav, right))
+        .columns([GridLength::Pixel(200.0), GridLength::Star(1.0)])
+        .column_spacing(12.0)
+        .into();
+
+    // Window body: header on top (auto height), main filling the rest (star row).
+    // The inset from the window border is a `.margin(..)` on the body — WinUI
+    // `Grid` has no Padding, so the old outer-column padding becomes a body margin
+    // (`app-header` inset requirement).
+    grid((header.grid_row(0), main.grid_row(1)))
+        .rows([GridLength::Auto, GridLength::Star(1.0)])
+        .row_spacing(12.0)
+        .margin(16.0)
+        .into()
+}
+
+/// The config view: a placeholder shown in the main region's right container when
+/// the header Configs toggle is on. Reads and writes nothing — a visual stand-in
+/// until a real config surface lands (`main-content-layout` spec).
+fn config_view() -> Element {
+    vstack((
+        text_block("Configs").font_size(20.0).bold(),
+        text_block("Configuration coming soon."),
+    ))
+    .spacing(8.0)
     .into()
 }
 
