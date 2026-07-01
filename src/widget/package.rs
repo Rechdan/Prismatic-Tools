@@ -61,6 +61,22 @@ fn no_widgets_dir() -> WidgetError {
     WidgetError::NoWidgets("No widgets folder found.".into())
 }
 
+/// Count installed widget folders: immediate subdirectories of `widgets/` (the
+/// same `is_dir` filter [`discover_first`] uses). Returns `0` when the folder is
+/// absent or unreadable. Used to pluralize the reload action's label.
+pub fn count_widgets() -> usize {
+    let Some(root) = widgets_root() else {
+        return 0;
+    };
+    let Ok(entries) = fs::read_dir(&root) else {
+        return 0;
+    };
+    entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_dir())
+        .count()
+}
+
 /// Load one widget folder: id = folder name, parse manifest, read entry source.
 fn load_from_dir(dir: &Path) -> Result<WidgetSource, WidgetError> {
     let id = dir

@@ -11,13 +11,19 @@ mod runtime;
 
 use std::fmt;
 
-pub use runtime::LoadedWidget;
+pub use runtime::{BorderStyle, LoadedWidget, NavCard};
 
 /// Discover the first widget folder (sorted) beside the exe and load it into a
 /// sandboxed VM. Any failure is a [`WidgetError`] the caller renders as text.
 pub fn load_first() -> Result<LoadedWidget, WidgetError> {
     let source = package::discover_first()?;
     runtime::load(&source)
+}
+
+/// Number of installed widget folders beside the exe (see
+/// [`package::count_widgets`]). Used to pluralize the reload action's label.
+pub fn count() -> usize {
+    package::count_widgets()
 }
 
 /// A widget failure, formatted to one user-visible line. Never panics the app.

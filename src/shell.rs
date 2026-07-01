@@ -2,6 +2,7 @@
 //! the themed window. Window plumbing lives in [`crate::window`].
 
 use std::ptr;
+use std::time::Duration;
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -65,23 +66,39 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     // config placeholder (`true`). The header Configs button toggles it
     // (`app-header`, `main-content-layout` specs); it starts on the widget.
     let (show_config, set_show_config) = cx.use_state(false);
+    // Hover state for the nav card below; drives its animated highlight fill.
+    let (hovered, set_hovered) = cx.use_state(false);
     // Fully-qualified: `use windows_reactor::*` shadows std `Result` with reactor's
     // one-arg alias, so name the two-arg std form explicitly here.
     let slot = cx.use_ref(None::<std::result::Result<widget::LoadedWidget, widget::WidgetError>>);
     if slot.borrow().is_none() {
         *slot.borrow_mut() = Some(widget::load_first());
     }
-    // The right pane's widget content, plus the loaded widget's name for the nav
-    // column. A broken/absent widget only replaces the right pane and yields no
-    // nav entry; the header and nav heading stay.
-    let (content, nav_name): (Element, Option<String>) = match &*slot.borrow() {
-        Some(Ok(w)) => (w.render(&set_tick, tick), Some(w.name().to_string())),
-        // A benign "no widget" state reads as a plain notice; a real failure is
-        // marked as an error. Neither yields a nav entry.
-        Some(Err(e)) if e.is_empty_notice() => (text_block(e.to_string()).into(), None),
-        Some(Err(e)) => (text_block(format!("⚠ {e}")).into(), None),
-        None => (text_block(String::new()).into(), None),
-    };
+    // The right pane's widget content, plus the nav card (resolved style + preview
+    // content) for the left column. A broken/absent widget only replaces the right
+    // pane and yields no nav card; the header and nav heading stay.
+    let (content, nav_card): (Element, Option<(widget::BorderStyle, Element)>) =
+        match &*slot.borrow() {
+            Some(Ok(w)) => {
+                // The widget's custom preview when it ships a `nav`, else its name
+                // on the default card.
+                let card = w
+                    .nav_render()
+                    .map(|widget::NavCard { style, content }| (style, content))
+                    .unwrap_or_else(|| {
+                        (
+                            widget::BorderStyle::default_card(),
+                            text_block(w.name().to_string()).into(),
+                        )
+                    });
+                (w.render(&set_tick, tick), Some(card))
+            }
+            // A benign "no widget" state reads as a plain notice; a real failure is
+            // marked as an error. Neither yields a nav card.
+            Some(Err(e)) if e.is_empty_notice() => (text_block(e.to_string()).into(), None),
+            Some(Err(e)) => (text_block(format!("⚠ {e}")).into(), None),
+            None => (text_block(String::new()).into(), None),
+        };
 
     // Header row: app name on the left, action buttons pinned to the far right. A
     // two-column grid — a star-sized first column (the name) eats the free space,
@@ -109,20 +126,76 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     .column_spacing(8.0)
     .into();
 
-    // Left navigation column: a "Tools" heading plus the loaded widget's name as a
-    // clickable entry that activates the widget view (selecting it also brings the
-    // user back from the config view). Per-widget custom rendering of the entry is
-    // future work. With no widget loaded the heading stands alone
+    // Left navigation column: a "Tools" heading plus the loaded widget's card — a
+    // full-width clickable tile (tapped `border`) that activates the widget view
+    // (bringing the user back from config), showing the widget's custom preview or
+    // its name, with an animated hover highlight. No widget → heading alone
     // (`main-content-layout` spec).
+    let nav_card_el: Option<Element> = nav_card.map(|(style, content)| {
+        let radius = style.corner_radius().unwrap_or(0.0);
+        // Pad the content, not the card frame, so the background layers below span
+        // the whole card (only the text is inset).
+        let content = match style.padding() {
+            Some(p) => content.padding(Thickness::uniform(p)),
+            None => content,
+        };
+        // Hover highlight: a SubtleFill layer covering the full card, beneath the
+        // content, whose opacity fades in/out (brush color can't tween, so we
+        // crossfade opacity). Its radius matches the card's.
+        let fill = border(text_block(""))
+            .background(ThemeRef::SubtleFill)
+            .corner_radius(radius)
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .vertical_alignment(VerticalAlignment::Stretch)
+            .opacity(if hovered { 1.0 } else { 0.0 })
+            .with_opacity_transition(Duration::from_millis(150));
+        let set_enter = set_hovered.clone();
+        let set_exit = set_hovered.clone();
+        // Host owns behavior (applied last, not Lua-overridable): hover tracking,
+        // tap-to-activate the widget view, and full-column stretch. Frame props
+        // (background/stroke/radius) go on the outer border; padding moved to
+        // content above.
+        style
+            .apply_frame(border(grid((fill, content))))
+            .on_pointer_entered(move |_| set_enter.call(true))
+            .on_pointer_exited(move || set_exit.call(false))
+            .on_tapped(set_show_config.setter(false))
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .into()
+    });
     let mut nav_children: Vec<Element> = vec![text_block("Tools").bold().into()];
-    if let Some(name) = nav_name {
-        nav_children.push(button(name).on_click(set_show_config.setter(false)).into());
+    if let Some(card) = nav_card_el {
+        nav_children.push(card);
     }
     let nav = vstack(nav_children).spacing(8.0).grid_column(0);
 
-    // Right container: the config placeholder when the config view is active,
+    // Reload action for the config view: rebuild the widget from disk (a fresh VM,
+    // so in-memory state resets), then bump the tick to re-render. The label
+    // pluralizes by the installed-widget count; reloading leaves the active view
+    // unchanged (`tool-surface`, `main-content-layout` specs).
+    let reload_label = if widget::count() == 1 {
+        "Reload widget"
+    } else {
+        "Reload widgets"
+    };
+    let reload = {
+        let slot = slot.clone();
+        let set_tick = set_tick.clone();
+        let next = tick.wrapping_add(1);
+        move || {
+            *slot.borrow_mut() = Some(widget::load_first());
+            set_tick.call(next);
+        }
+    };
+
+    // Right container: the config view (hosting the reload action) when active,
     // otherwise the active widget.
-    let right: Element = (if show_config { config_view() } else { content }).grid_column(1);
+    let right: Element = if show_config {
+        config_view(reload_label, reload)
+    } else {
+        content
+    }
+    .grid_column(1);
 
     // Main region: a persistent two-pane grid — a fixed 200-DIP nav column beside
     // a star-sized right container that fills the rest (`main-content-layout` spec).
@@ -143,12 +216,14 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
 }
 
 /// The config view: a placeholder shown in the main region's right container when
-/// the header Configs toggle is on. Reads and writes nothing — a visual stand-in
-/// until a real config surface lands (`main-content-layout` spec).
-fn config_view() -> Element {
+/// the config view is active. Beyond the placeholder text it hosts the
+/// reload-widget action (`main-content-layout`, `tool-surface` specs); it reads and
+/// writes no settings. `reload_label` is pluralized by the installed-widget count.
+fn config_view(reload_label: &str, on_reload: impl Fn() + 'static) -> Element {
     vstack((
         text_block("Configs").font_size(20.0).bold(),
         text_block("Configuration coming soon."),
+        button(reload_label).on_click(on_reload),
     ))
     .spacing(8.0)
     .into()

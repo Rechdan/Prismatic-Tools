@@ -27,7 +27,12 @@ const WINUI_CLASS: &str = "WinUIDesktopWin32WindowClass";
 /// Minimum interactive inner size in DIPs (width, height). Applied via reactor's
 /// `App::inner_constraints`, which clamps user resize through the window's
 /// `OverlappedPresenter` — the header and hosted tool stay usable at every size.
-const MIN_INNER_SIZE: (f64, f64) = (800.0, 600.0);
+const MIN_INNER_SIZE: (f64, f64) = (1024.0, 768.0);
+
+/// Initial (opening) inner size in DIPs (width, height). Applied via reactor's
+/// `App::inner_size`. Equal to `MIN_INNER_SIZE`, so the window opens exactly at
+/// its floor and only grows; naming it separately keeps the intent explicit.
+const INIT_INNER_SIZE: (f64, f64) = (1024.0, 768.0);
 
 /// Cached top-level HWND of our WinUI window. Reactor's own `AppWindow` bindings
 /// are `pub(crate)`, so we drive visibility through the Win32 HWND.
@@ -235,6 +240,7 @@ pub fn run(root: fn(&mut RenderCx) -> Element) -> Result<()> {
     let result = App::new()
         .title(WINDOW_TITLE)
         .backdrop(Backdrop::Mica)
+        .inner_size(INIT_INNER_SIZE.0, INIT_INNER_SIZE.1)
         .inner_constraints(InnerConstraints {
             min_width: Some(MIN_INNER_SIZE.0),
             min_height: Some(MIN_INNER_SIZE.1),
