@@ -24,6 +24,11 @@ const WINDOW_TITLE: &str = "Prismatic Tools";
 /// creation to claim our window before reactor paints it.
 const WINUI_CLASS: &str = "WinUIDesktopWin32WindowClass";
 
+/// Minimum interactive inner size in DIPs (width, height). Applied via reactor's
+/// `App::inner_constraints`, which clamps user resize through the window's
+/// `OverlappedPresenter` — the header and hosted tool stay usable at every size.
+const MIN_INNER_SIZE: (f64, f64) = (800.0, 600.0);
+
 /// Cached top-level HWND of our WinUI window. Reactor's own `AppWindow` bindings
 /// are `pub(crate)`, so we drive visibility through the Win32 HWND.
 static WINDOW_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -230,6 +235,11 @@ pub fn run(root: fn(&mut RenderCx) -> Element) -> Result<()> {
     let result = App::new()
         .title(WINDOW_TITLE)
         .backdrop(Backdrop::Mica)
+        .inner_constraints(InnerConstraints {
+            min_width: Some(MIN_INNER_SIZE.0),
+            min_height: Some(MIN_INNER_SIZE.1),
+            ..Default::default()
+        })
         .render(root);
     unhook_startup();
     result

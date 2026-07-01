@@ -26,9 +26,11 @@ context: |
     grid; window-edge padding) above a hardcoded demo tool standing in for future
     plugin tools. The header is its own capability (`openspec/specs/app-header/`).
   - `src/window.rs` — the themed `windows-reactor` window plus Win32 HWND
-    show/hide/toggle. A startup CBT hook claims the window at creation and
-    suppresses its first show (flash-free launch); the HWND subclass both holds
-    that suppression and turns `WM_CLOSE` into hide-to-tray.
+    show/hide/toggle, and an 800×600-DIP minimum window size (reactor's
+    `App::inner_constraints` builder, not a Win32 subclass). A startup CBT hook
+    claims the window at creation and suppresses its first show (flash-free
+    launch); the HWND subclass both holds that suppression and turns `WM_CLOSE`
+    into hide-to-tray.
 
   Tray-resident lifecycle: starts hidden, the tray toggles the window, the
   title-bar X hides to tray (does not exit), a single-instance mutex drops
