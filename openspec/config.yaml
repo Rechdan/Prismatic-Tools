@@ -44,7 +44,8 @@ context: |
     that suppression and turns `WM_CLOSE` into hide-to-tray.
   - `src/widget/` — the Lua widget runtime. `package.rs` resolves the first widget
     folder in `widgets/` (beside the exe; `widget.toml` manifest, folder name = id)
-    and reads its Lua entry (plus `count_widgets()` for the reload label);
+    and reads its Lua entry (its count backs the public `widget::count()` used
+    for the reload label);
     `runtime.rs` runs it in a sandboxed `mlua` VM (safe libs only — no os/io/debug;
     `require` scoped to the widget folder) enforcing the `{ state, render, nav? }`
     contract — `nav(state)` is an optional display-only preview for the nav card,
