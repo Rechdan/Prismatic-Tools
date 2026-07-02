@@ -64,3 +64,21 @@ To animate a color change (e.g. a hover fill), **crossfade opacity of an overlay
 - `use_ref<T: 'static>(initial) -> HookRef<T>` where `HookRef` is `{ inner: Rc<RefCell<T>> }` and is **`Clone`** (clones the `Rc`). Clone it into a `'static` callback to mutate the ref on click (e.g. a "reload" that replaces the held value), then bump a `use_state` tick to re-render.
 - `App` builder: `.inner_size(w, h)` sets the opening size; `.inner_constraints(InnerConstraints { min_width, min_height, .. })` sets the resize floor. Both are DIPs.
 - Grid children with no explicit row/column default to cell (0,0) and **overlap** in z-order (later child on top) — the basis for the hover-overlay-under-content pattern.
+
+## Rich text: only block-level styling works; `RichTextBlock` runs and hyperlinks are half-wired
+
+Reactor exposes a `RichTextBlock` (`RichTextParagraph` → `RichTextInline::{ Run, LineBreak, Hyperlink }`, with `RichTextRun { text, is_bold, is_italic, is_strikethrough, font_family, font_size }` and `RichTextHyperlink { text, uri }`). It looks like a full inline rich-text API. **It is not, in this checkout** — the WinUI backend (`backend/winui/mod.rs`) only wires part of it:
+
+- **A `RichTextRun` applies only `is_bold`** (→ `FontWeight 700`). `is_italic`, `is_strikethrough`, per-run `font_family`, and per-run `font_size` are **silently ignored**, and a run has **no color field** at all. So `RichTextBlock`'s only real gain over a plain `text_block` is **mixed bold within one paragraph**.
+- **`RichTextHyperlink` does not navigate** — it is "rendered as plain text (no navigation support yet)". Inline links are therefore impossible; only the block-level **`HyperlinkButton`** widget (string content) actually opens a URI, and it can't sit inside a paragraph's text flow.
+
+What **does** work for styling text, all at the **block (whole-element) level** via shared `ElementExt` modifiers on any element (`text_block`, `border`, …):
+
+- `.font_family(name)` (e.g. `"Consolas"` for a code block — the backend `SetFontFamily`s the `TextBlock` handle), `.foreground(brush)` (a `Color` or `ThemeRef`), `.font_size(f64)`, `.bold()`/`.semibold()`/`.font_weight(u16)`, `.wrap()` (`TextWrapping::Wrap`), `.selectable()`.
+- WinUI **type-ramp** factories return a pre-sized `TextBlock`: `title` (28 semibold), `subtitle` (20), `body_large` (18), `body_strong` (14 semibold), `body` (14), `caption` (12).
+
+Practical upshot (the README home screen, `src/home.rs`): map markdown **block-by-block** to `text_block`s and flatten inline runs to text — per-run bold/italic/inline-code/link styling is not worth `RichTextBlock` unless you specifically need mixed **bold** and nothing else.
+
+## `scroll_viewer` — vertical by default; bounds inside a Grid star cell
+
+`scroll_viewer(child)` wraps a **single** child (`PositionalSingle`): vertical scrollbar `Auto`, horizontal `Disabled` by default (`horizontal_scroll_bar_visibility(..)` to change). It needs a **bounded height** to scroll rather than grow: inside a `vstack`/`StackPanel` (infinite height) give it `.max_height(..)`; inside a **Grid star row/column cell** the cell already bounds it, so it scrolls with no explicit height (that is how the shell's right container hosts the home view). An `Element::Group` (fragment) as the **sole** child of a `ScrollViewer`/`Border` **panics** — hand it a real panel (a `vstack`/`grid`), not a bare multi-child fragment.

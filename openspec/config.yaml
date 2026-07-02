@@ -15,7 +15,8 @@ context: |
     only a stub `main` — it does not produce the app.
   - Windows deps live under `[target.'cfg(windows)'.dependencies]`:
     `windows-reactor` (git), `tray-icon`, `windows-sys`, `mlua`
-    (`lua54`+`vendored` — the Lua widget runtime), and `toml` (widget manifests).
+    (`lua54`+`vendored` — the Lua widget runtime), `toml` (widget manifests), and
+    `pulldown-cmark` (`default-features = false` — the README home-screen markdown parser).
   - Release builds require `[profile.release] panic = "abort"` (unwinding into
     WinUI's C++ frames is UB).
   - There are no tests. Node tooling (nodemon, `concurrently`, `@fission-ai/openspec`)
@@ -26,16 +27,26 @@ context: |
     tool-rendering surface: a persistent app header (app name on the left; a
     `Configs` button and a `GitHub` repo-link button pinned right via a two-column
     grid) on top, and below it a main region that fills the rest — a persistent
-    two-pane layout: a fixed 200-DIP left nav column (a `Tools` heading plus the
-    loaded widget as a full-width clickable card) beside a right container that
-    shows the active widget or a config view. The nav card is a tapped `border`
-    rendering the widget's optional custom preview or, by default, its name, with a
-    `SubtleFill` hover fill animated via opacity crossfade. Active-view selection:
-    the header `Configs` button activates the config view, the nav card's
-    `on_tapped` activates the widget view (not a toggle); the body is inset from the
-    window edge via a margin. The header is its own capability
-    (`openspec/specs/app-header/`); the two-pane main region is its own capability
-    (`openspec/specs/main-content-layout/`).
+    two-pane layout: a fixed 200-DIP left nav column (an accessible `Home` button
+    at the top, then a `Tools` heading plus the loaded widget as a full-width
+    clickable card) beside a right container that shows one of three views — the
+    README home view (the default landing view), the active widget, or a config
+    view. The nav card is a tapped `border` rendering the widget's optional custom
+    preview or, by default, its name, with a `SubtleFill` hover fill animated via
+    opacity crossfade. Active-view selection (a `View { Home, Widget, Config }`
+    state, default `Home`): the header `Configs` button activates the config view,
+    the nav `Home` button activates the home view, and the nav card's `on_tapped`
+    activates the widget view (not a toggle); the body is inset from the window edge
+    via a margin. The header is its own capability (`openspec/specs/app-header/`);
+    the two-pane main region is its own capability
+    (`openspec/specs/main-content-layout/`); the README home view is the
+    `home-screen` capability (`openspec/specs/home-screen/`).
+  - `src/home.rs` — the `Home` view (the shell's default). Renders the project
+    `README.md`, bundled into the exe via `include_str!` (a compile input — an edit
+    needs a rebuild), as block-level markdown parsed by `pulldown-cmark`; inline
+    runs are flattened to text (reactor renders no per-run inline styling / inline
+    links), and the document is wrapped in a vertical `scroll_viewer`. Fault-tolerant
+    (bad markdown degrades to text). Capability `openspec/specs/home-screen/`.
   - `src/window.rs` — the themed `windows-reactor` window plus Win32 HWND
     show/hide/toggle, and a 1024×768-DIP initial (opening) size (`App::inner_size`)
     plus a matching 1024×768-DIP minimum size (reactor's `App::inner_constraints`

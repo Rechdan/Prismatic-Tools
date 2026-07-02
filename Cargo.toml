@@ -20,6 +20,12 @@ mlua = { version = "0.10", features = ["lua54", "vendored"] }
 # Widget manifest (`widget.toml`) parsing. Pure Rust, cross-builds cleanly; parsed
 # via `toml::Table` (no serde derive needed for three fields).
 toml = "0.8"
+# Markdown parser for the README home screen (home-screen). Pure Rust, cross-builds
+# cleanly for the gnu target. `default-features = false` drops the unused `html`
+# render feature — we consume the pull-parser event stream directly. Only block
+# events are mapped; inline runs are flattened to text (reactor renders no per-run
+# inline styling — see docs/reactor-notes.md).
+pulldown-cmark = { version = "0.12", default-features = false }
 # Win32 show/hide for the tray↔window toggle. Reactor's own AppWindow bindings
 # are pub(crate), so drive visibility through the top-level HWND instead.
 windows-sys = { version = "0.59", features = [

@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n app,widgets \"yarn dev:app\" \"yarn dev:widgets\"",
-    "dev:app": "nodemon -w \"./src\" -e \"*\" -x \"yarn win\"",
+    "dev:app": "nodemon -w \"./src\" -w \"./README.md\" -e \"*\" -x \"yarn win\"",
     "dev:widgets": "nodemon -w \"./widgets\" -e \"*\" --on-change-only -x \"python3 scripts/winrun.py --sync-widgets\"",
     "win": "python3 scripts/winrun.py",
     "win:release": "python3 scripts/winrun.py --release"

@@ -7,6 +7,8 @@
 // / `cargo test` / `yarn dev` stay green.
 
 #[cfg(windows)]
+mod home;
+#[cfg(windows)]
 mod shell;
 #[cfg(windows)]
 mod widget;

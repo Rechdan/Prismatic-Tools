@@ -10,6 +10,7 @@ use windows_reactor::*;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 
+use crate::home;
 use crate::widget;
 use crate::window;
 
@@ -41,6 +42,16 @@ fn brand_icon() -> Icon {
     Icon::from_rgba(rgba, 16, 16).expect("brand icon")
 }
 
+/// Which view the right container shows (`main-content-layout` spec). `Home` (the
+/// rendered README) is the default landing view; the widget and config views are
+/// reached from the nav widget card and the header, respectively.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum View {
+    Home,
+    Widget,
+    Config,
+}
+
 /// The hosted tool surface: the persistent app header above the loaded widget
 /// (`tool-surface`, `app-header`, `widget-runtime` specs). The first widget found
 /// in `widgets/` (beside the exe) is loaded once and rendered below the header.
@@ -62,10 +73,11 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     // first render. `tick` is the re-render trigger a widget callback bumps after
     // mutating its Lua state (the widget's own state lives inside its VM).
     let (tick, set_tick) = cx.use_state(0_u32);
-    // Which content the right pane shows: the active widget (`false`) or the
-    // config placeholder (`true`). The header Configs button toggles it
-    // (`app-header`, `main-content-layout` specs); it starts on the widget.
-    let (show_config, set_show_config) = cx.use_state(false);
+    // Which content the right pane shows: the home view (the rendered README, the
+    // default), the active widget, or the config placeholder. The nav Home button,
+    // the nav widget card, and the header Configs button each select one
+    // (`home-screen`, `main-content-layout`, `app-header` specs).
+    let (view, set_view) = cx.use_state(View::Home);
     // Hover state for the nav card below; drives its animated highlight fill.
     let (hovered, set_hovered) = cx.use_state(false);
     // Fully-qualified: `use windows_reactor::*` shadows std `Result` with reactor's
@@ -115,7 +127,7 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
             .grid_column(0)
             .vertical_alignment(VerticalAlignment::Center),
         hstack((
-            button("Configs").on_click(set_show_config.setter(true)),
+            button("Configs").on_click(set_view.setter(View::Config)),
             HyperlinkButton::new("GitHub")
                 .navigate_uri("https://github.com/Rechdan/Prismatic-Tools"),
         ))
@@ -159,11 +171,20 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
             .apply_frame(border(grid((fill, content))))
             .on_pointer_entered(move |_| set_enter.call(true))
             .on_pointer_exited(move || set_exit.call(false))
-            .on_tapped(set_show_config.setter(false))
+            .on_tapped(set_view.setter(View::Widget))
             .horizontal_alignment(HorizontalAlignment::Stretch)
             .into()
     });
-    let mut nav_children: Vec<Element> = vec![text_block("Tools").bold().into()];
+    // Home entry: a plain, keyboard-accessible button at the top of the nav
+    // (`home-screen`, `main-content-layout` specs). Built unconditionally, so it
+    // is present even when no widget is loaded; stretched to the column width.
+    let mut nav_children: Vec<Element> = vec![
+        button("Home")
+            .on_click(set_view.setter(View::Home))
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .into(),
+        text_block("Tools").bold().into(),
+    ];
     if let Some(card) = nav_card_el {
         nav_children.push(card);
     }
@@ -188,12 +209,12 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
         }
     };
 
-    // Right container: the config view (hosting the reload action) when active,
-    // otherwise the active widget.
-    let right: Element = if show_config {
-        config_view(reload_label, reload)
-    } else {
-        content
+    // Right container: exactly one active view — the home README (default), the
+    // active widget, or the config view (which hosts the reload action).
+    let right: Element = match view {
+        View::Home => home::view(),
+        View::Widget => content,
+        View::Config => config_view(reload_label, reload),
     }
     .grid_column(1);
 
