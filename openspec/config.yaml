@@ -18,8 +18,8 @@ context: |
     (`lua54`+`vendored` — the Lua widget runtime), and `toml` (widget manifests).
   - Release builds require `[profile.release] panic = "abort"` (unwinding into
     WinUI's C++ frames is UB).
-  - There are no tests. Node tooling (nodemon, `@fission-ai/openspec`) is dev-only;
-    there is no JavaScript application code.
+  - There are no tests. Node tooling (nodemon, `concurrently`, `@fission-ai/openspec`)
+    is dev-only; there is no JavaScript application code.
 
   Architecture (thin Rust modules, all `cfg(windows)`-gated):
   - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the

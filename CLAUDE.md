@@ -30,10 +30,10 @@ Break-your-build facts. Each stands alone; read this section before touching the
 
 ## Commands
 
-- `python3 scripts/winrun.py [--release] [--no-run]` (or `yarn win`; `yarn win:release` = `--release`) — **the real dev-run:** cross-builds the app, stages a self-contained Windows App SDK runtime next to the exe, and launches it via WSL interop. `--no-run` builds + stages but doesn't launch (that flag is only on the `winrun.py` form; the `yarn win`/`win:release` scripts take no extra args).
+- `python3 scripts/winrun.py [--release] [--no-run]` (or `yarn win`; `yarn win:release` = `--release`) — **the real dev-run:** cross-builds the app, stages a self-contained Windows App SDK runtime next to the exe, and launches it via WSL interop. `--no-run` builds + stages but doesn't launch (that flag is only on the `winrun.py` form; the `yarn win`/`win:release` scripts take no extra args). The separate `python3 scripts/winrun.py --sync-widgets` mode is **copy-only**: it mirrors the repo `widgets/` into `<run-dir>/widgets` and returns — no build, no staging, no launch — so a running app + in-app **Reload** picks up widget edits live (used by `yarn dev` below).
 - `cargo run` / `cargo build` — builds the **Linux host stub** only: a fast, always-green compile check for non-UI logic (Windows deps are `cfg(windows)`-gated). Does not produce the app.
 - `cargo test` — there are **no tests**; this only confirms the stub compiles. `cargo test <name>` filters by substring.
-- `yarn dev` — `nodemon -w ./src -e "*"` watch loop that re-runs **`yarn win`** (the full Windows build-stage-run, not the stub) on any `src/` change.
+- `yarn dev` — runs two watchers together via `concurrently`: `dev:app` (`nodemon -w ./src -e "*"` → re-runs **`yarn win`**, the full build-stage-run, on any `src/` change) and `dev:widgets` (`nodemon -w ./widgets -e "*" --on-change-only` → runs `winrun.py --sync-widgets` on a widget edit — copy-only, **no rebuild or relaunch**). Widget edits therefore mirror into the run dir; press the config view's **Reload** to load them without restarting. `--on-change-only` keeps the widgets watcher idle at startup so it never races `yarn win`'s run-dir wipe.
 - `yarn openspec <cmd>` — OpenSpec CLI via the repo-local bin (resolved from `node_modules/.bin`; not a `package.json` script).
 
 Toolchain is pinned: Node `v24.18.0` (`.nvmrc`), Rust `1.96.0` (`rust-toolchain.toml`, which also auto-installs the `x86_64-pc-windows-gnu` cross-target), edition 2024 (`Cargo.toml`). Run `nvm use` before yarn commands.
@@ -48,13 +48,18 @@ The dev host is WSL2 Linux but the product is Windows-only. The full build-stage
 
 ## Architecture
 
-Two layers, intentionally thin. Both Rust UI modules are `cfg(windows)`-gated; the Windows deps (`windows-reactor` git, `tray-icon`, `windows-sys` with the `Win32_Foundation`/`Win32_Security`/`Win32_System_Threading`/`Win32_UI_WindowsAndMessaging` features, `mlua` with `lua54`+`vendored`, and `toml`) live under `[target.'cfg(windows)'.dependencies]`.
+Two layers, intentionally thin. Both Rust UI modules are `cfg(windows)`-gated; the Windows deps (`windows-reactor` git, `tray-icon`, `windows-sys` with the `Win32_*` features it needs, `mlua` with `lua54`+`vendored`, and `toml`) live under `[target.'cfg(windows)'.dependencies]` (exact features in `Cargo.toml`).
 
 ### Rust crate — the product
 
 `src/main.rs` is a thin `cfg` entry (Windows → `shell::run()`, else a stub).
 
-- **`src/shell.rs`** — acquires the single-instance mutex (`CreateMutexW`, named `Local\PrismaticTools.SingleInstance`; a second launch returns early), installs the tray (Exit-only menu + a left-click window toggle), and renders the tool surface. The surface is a two-row `Grid` (`Auto` header row, `Star` main row) inset from the window edge via a `.margin` (WinUI `Grid` has no `Padding`): the header row holds the app name (left) and `Configs` + `GitHub`-link buttons (right); the main row is a two-pane `Grid` (`Pixel(200)` nav column + `Star` right container). The nav shows a `Tools` heading plus the loaded widget as a full-width clickable **card** — a tapped `border` rendering the widget's optional `nav` preview or, by default, its manifest name, with a `SubtleFill` hover fill animated by opacity crossfade. The right container shows the active widget or a config placeholder view. A `show_config` `use_state` selects the active view (header `Configs` → config; nav card `on_tapped` → widget — an explicit select, not a toggle); a `hovered` `use_state` drives the card fill.
+- **`src/shell.rs`** — the single-instance guard, tray, and rendered tool surface.
+  - **Single instance** — `CreateMutexW` named `Local\PrismaticTools.SingleInstance`; a second launch returns early.
+  - **Tray** — an Exit-only menu plus a left-click window toggle.
+  - **Layout** — a two-row `Grid` (`Auto` header row, `Star` main row) inset from the window edge via a `.margin` (WinUI `Grid` has no `Padding`): the header row holds the app name (left) and `Configs` + `GitHub`-link buttons (right); the main row is a two-pane `Grid` (`Pixel(200)` nav column + `Star` right container).
+  - **Nav card** — a `Tools` heading plus the loaded widget as a full-width clickable **card**: a tapped `border` rendering the widget's optional `nav` preview or, by default, its manifest name, with a `SubtleFill` hover fill animated by opacity crossfade.
+  - **View state** — the right container shows the active widget or a config placeholder; a `show_config` `use_state` selects it (header `Configs` → config; nav card `on_tapped` → widget — an explicit select, not a toggle), and a `hovered` `use_state` drives the card fill.
 - **`src/window.rs`** — owns the `windows-reactor` window entrypoint, caches the top-level HWND for Win32 show/hide/toggle, sets a 1024×768-DIP initial size (`App::inner_size`) and a matching 1024×768-DIP minimum (`App::inner_constraints` — this drives the window's `OverlappedPresenter` minimum, **not** a Win32 `WM_GETMINMAXINFO` subclass), and subclasses that HWND. The subclass does two jobs: it intercepts `WM_CLOSE` to hide-to-tray instead of exiting, and — while a startup `WH_CBT` hook holds a suppress flag — swallows reactor's startup window activation so the window never paints until the first tray reveal (the flash-free launch). Reactor's `AppWindow` bindings are `pub(crate)`, so both visibility and the close intercept are driven through the HWND with `windows-sys`.
 - **`src/widget/`** — the Lua widget runtime (the tool mechanism). Tools live under `widgets/` beside the exe, one folder per widget, each with a `widget.toml` manifest (`name` required; `version`/`entry` optional, `entry` default `main.lua`; the folder name is the widget id).
   - **Load** — `package.rs` resolves `widgets/` via `current_exe()`, picks the first folder (sorted), parses the manifest, and reads the Lua entry.
@@ -67,7 +72,7 @@ Two layers, intentionally thin. Both Rust UI modules are `cfg(windows)`-gated; t
 
 ### Node / scripts layer — dev-only
 
-`scripts/winrun.py` drives the Windows build-stage-run; `nodemon` provides Windows-app hot-reload (`yarn dev` re-runs `yarn win` on `src/` changes); `@fission-ai/openspec` provides the spec workflow. Vendored agent skills under `.agents/skills/` and `.claude/skills/` are tooling, not product — not shipped, not imported by Rust.
+`scripts/winrun.py` drives the Windows build-stage-run (and a copy-only `--sync-widgets` mode); `nodemon` + `concurrently` provide Windows-app hot-reload (`yarn dev` re-runs `yarn win` on `src/` changes and mirrors `widgets/` into the run dir on widget edits); `@fission-ai/openspec` provides the spec workflow. Vendored agent skills under `.agents/skills/` and `.claude/skills/` are tooling, not product — not shipped, not imported by Rust.
 
 ## OpenSpec workflow
 

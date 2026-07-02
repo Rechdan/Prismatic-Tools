@@ -16,7 +16,13 @@ Steps:
   4. stage Bootstrap.dll + runtime DLLs + <exe>.manifest next to the exe on NTFS
   5. run the exe via interop (unless --no-run)
 
+`--sync-widgets` is a separate, copy-only mode: it mirrors the repo `widgets/`
+into `<run-dir>/widgets` and returns — no build, no runtime staging, no launch.
+It backs `yarn dev:widgets` so an in-app Reload picks up repo widget edits
+without relaunching the app (the running exe reads widgets from that same run dir).
+
 Usage: python3 scripts/winrun.py [--release] [--no-run]
+       python3 scripts/winrun.py --sync-widgets
 """
 from __future__ import annotations
 
@@ -146,7 +152,39 @@ def stage(profile: str) -> str:
     return dest
 
 
+def sync_widgets() -> None:
+    """Copy-only: mirror the repo `widgets/` into `<run-dir>/widgets`.
+
+    No cargo build, no runtime staging, no launch. Reuses `win_run_dir()` so it
+    targets the exact folder the running exe reads (widgets beside the exe in the
+    run dir), letting an in-app Reload pick up repo edits without a relaunch.
+
+    Mirror, not merge: the destination `widgets/` is wiped before the copy, so a
+    file deleted or renamed in the repo also disappears from the staged copy. The
+    run dir is created if absent (a sync fired before the app was launched just
+    recreates it); a missing repo `widgets/` is a no-op.
+    """
+    widgets_src = os.path.join(ROOT, "widgets")
+    if not os.path.isdir(widgets_src):
+        print(f"no widgets/ to sync at {widgets_src}")
+        return
+    dest = win_run_dir()
+    dest_widgets = os.path.join(dest, "widgets")
+    os.makedirs(dest, exist_ok=True)
+    if os.path.isdir(dest_widgets):
+        shutil.rmtree(dest_widgets)
+    shutil.copytree(widgets_src, dest_widgets)
+    print(f"synced widgets -> {dest_widgets}")
+
+
 def main() -> None:
+    # Copy-only mode: mirror widgets into the run dir and stop before any
+    # build/stage/launch, so a widget-file watcher can refresh what a running app
+    # reads without relaunching it.
+    if "--sync-widgets" in sys.argv:
+        sync_widgets()
+        return
+
     release = "--release" in sys.argv
     no_run = "--no-run" in sys.argv
     profile = "release" if release else "debug"
