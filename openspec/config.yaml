@@ -24,21 +24,23 @@ context: |
 
   Architecture (thin Rust modules, all `cfg(windows)`-gated):
   - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the
-    tool-rendering surface: a persistent app header (app name on the left; a
-    `Configs` button and a `GitHub` repo-link button pinned right via a two-column
-    grid) on top, and below it a main region that fills the rest — a persistent
-    two-pane layout: a fixed 200-DIP left nav column (an accessible `Home` button
-    at the top, then a `Tools` heading plus the loaded widget as a full-width
-    clickable card) beside a right container that shows one of three views — the
-    README home view (the default landing view), the active widget, or a config
-    view. The nav card is a tapped `border` rendering the widget's optional custom
-    preview or, by default, its name, with a `SubtleFill` hover fill animated via
-    opacity crossfade. Active-view selection (a `View { Home, Widget, Config }`
-    state, default `Home`): the header `Configs` button activates the config view,
-    the nav `Home` button activates the home view, and the nav card's `on_tapped`
-    activates the widget view (not a toggle); the body is inset from the window edge
-    via a margin. The header is its own capability (`openspec/specs/app-header/`);
-    the two-pane main region is its own capability
+    tool-rendering surface: a single left navigation sidebar beside a right
+    container, inset from the window edge via a margin, with no header row. The
+    window body is a two-pane grid — a fixed 200-DIP nav column + a star-sized right
+    container. The nav column is a three-row layout: a pinned app-title label
+    (`Prismatic Tools`) on top; a scrollable middle holding an accessible `Home`
+    entry, a `Tools` heading, and the loaded widget as a full-width clickable card;
+    and a pinned bottom group holding a `Configs` entry and a `GitHub` repo-link. The
+    right container shows one of three views — the README home view (default), the
+    active widget, or a config view. The nav card is a tapped `border` rendering the
+    widget's optional custom preview or, by default, its name, layering a persistent
+    `ControlFill` selection fill (lit when the widget view is active) beneath a
+    `SubtleFill` hover fill, both animated via opacity crossfade. Active-view
+    selection (a `View { Home, Widget, Config }` state, default `Home`): the nav
+    `Configs` entry activates the config view, the nav `Home` entry activates the
+    home view, and the nav card's `on_tapped` activates the widget view (not a
+    toggle); the active entry carries a soft selection highlight. The two-pane
+    sidebar layout is the `main-content-layout` capability
     (`openspec/specs/main-content-layout/`); the README home view is the
     `home-screen` capability (`openspec/specs/home-screen/`).
   - `src/home.rs` — the `Home` view (the shell's default). Renders the project

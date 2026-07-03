@@ -44,7 +44,8 @@ fn brand_icon() -> Icon {
 
 /// Which view the right container shows (`main-content-layout` spec). `Home` (the
 /// rendered README) is the default landing view; the widget and config views are
-/// reached from the nav widget card and the header, respectively.
+/// reached from the nav widget card and the nav Configs entry, respectively. The
+/// active view's nav entry carries a selection highlight.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum View {
     Home,
@@ -52,9 +53,10 @@ enum View {
     Config,
 }
 
-/// The hosted tool surface: the persistent app header above the loaded widget
-/// (`tool-surface`, `app-header`, `widget-runtime` specs). The first widget found
-/// in `widgets/` (beside the exe) is loaded once and rendered below the header.
+/// The hosted tool surface: a single left navigation sidebar beside the selected
+/// view (`tool-surface`, `main-content-layout`, `widget-runtime` specs). The first
+/// widget found in `widgets/` (beside the exe) is loaded once; its card lives in the
+/// sidebar and its UI renders in the right container when the widget view is active.
 fn tool_surface(cx: &mut RenderCx) -> Element {
     // No window on launch (`tray-presence` spec): the startup CBT hook already
     // claimed the window at creation — subclassing it to suppress shows, so
@@ -74,9 +76,9 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     // mutating its Lua state (the widget's own state lives inside its VM).
     let (tick, set_tick) = cx.use_state(0_u32);
     // Which content the right pane shows: the home view (the rendered README, the
-    // default), the active widget, or the config placeholder. The nav Home button,
-    // the nav widget card, and the header Configs button each select one
-    // (`home-screen`, `main-content-layout`, `app-header` specs).
+    // default), the active widget, or the config placeholder. The nav Home entry,
+    // the nav widget card, and the nav Configs entry each select one
+    // (`home-screen`, `main-content-layout` specs).
     let (view, set_view) = cx.use_state(View::Home);
     // Hover state for the nav card below; drives its animated highlight fill.
     let (hovered, set_hovered) = cx.use_state(false);
@@ -112,37 +114,34 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
             None => (text_block(String::new()).into(), None),
         };
 
-    // Header row: app name on the left, action buttons pinned to the far right. A
-    // two-column grid — a star-sized first column (the name) eats the free space,
-    // an auto-sized second column (the buttons) hugs the right edge — gives the
-    // space-between layout (`hstack` only left-packs). The GitHub `HyperlinkButton`
-    // opens the repo page in the default browser; "Configs" activates the config
-    // view in the right pane (`app-header` spec) — it selects the config view
-    // rather than toggling; the widget view is reached back by clicking the
-    // widget's entry in the nav column.
-    let header: Element = grid((
-        text_block("Prismatic Tools")
-            .font_size(20.0)
-            .bold()
-            .grid_column(0)
-            .vertical_alignment(VerticalAlignment::Center),
-        hstack((
-            button("Configs").on_click(set_view.setter(View::Config)),
-            HyperlinkButton::new("GitHub")
-                .navigate_uri("https://github.com/Rechdan/Prismatic-Tools"),
-        ))
-        .spacing(8.0)
-        .grid_column(1),
-    ))
-    .columns([GridLength::Star(1.0), GridLength::Auto])
-    .column_spacing(8.0)
-    .into();
+    // A navigation entry with a view-driven selection highlight: a real
+    // (keyboard-focusable) `.subtle()` button — transparent at rest — layered over a
+    // soft selection fill whose opacity is driven declaratively by the active `view`.
+    // No toggle/checked control state, so re-selecting the already-active entry is a
+    // harmless no-op and the highlight never desyncs (a controlled `ToggleButton`
+    // would deselect itself on re-click). Grid children overlap at cell (0,0); the
+    // button is the later child, so it sits above the fill and receives clicks
+    // (`main-content-layout` selection requirement).
+    let nav_button = |label: &str, target: View| -> Element {
+        let selection_fill = border(text_block(""))
+            .background(ThemeRef::ControlFill)
+            .corner_radius(4.0)
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .vertical_alignment(VerticalAlignment::Stretch)
+            .opacity(if view == target { 1.0 } else { 0.0 })
+            .with_opacity_transition(Duration::from_millis(150));
+        let btn = button(label)
+            .subtle()
+            .on_click(set_view.setter(target))
+            .horizontal_alignment(HorizontalAlignment::Stretch);
+        grid((selection_fill, btn)).into()
+    };
 
-    // Left navigation column: a "Tools" heading plus the loaded widget's card — a
-    // full-width clickable tile (tapped `border`) that activates the widget view
-    // (bringing the user back from config), showing the widget's custom preview or
-    // its name, with an animated hover highlight. No widget → heading alone
-    // (`main-content-layout` spec).
+    // The loaded widget's card: a full-width clickable tile (tapped `border`)
+    // activating the widget view, showing the widget's custom preview or its name.
+    // It layers, beneath the content, a persistent selection fill (lit when the
+    // widget view is active) and, above that, a transient hover fill — the two
+    // compose. No widget → no card (`main-content-layout` spec).
     let nav_card_el: Option<Element> = nav_card.map(|(style, content)| {
         let radius = style.corner_radius().unwrap_or(0.0);
         // Pad the content, not the card frame, so the background layers below span
@@ -151,7 +150,17 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
             Some(p) => content.padding(Thickness::uniform(p)),
             None => content,
         };
-        // Hover highlight: a SubtleFill layer covering the full card, beneath the
+        // Selection fill: a ControlFill layer covering the full card, lit when the
+        // widget view is active. Distinct brush from the hover's SubtleFill so the
+        // two read differently and compose.
+        let selection_fill = border(text_block(""))
+            .background(ThemeRef::ControlFill)
+            .corner_radius(radius)
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .vertical_alignment(VerticalAlignment::Stretch)
+            .opacity(if view == View::Widget { 1.0 } else { 0.0 })
+            .with_opacity_transition(Duration::from_millis(150));
+        // Hover highlight: a SubtleFill layer above the selection fill, beneath the
         // content, whose opacity fades in/out (brush color can't tween, so we
         // crossfade opacity). Its radius matches the card's.
         let fill = border(text_block(""))
@@ -168,27 +177,41 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
         // (background/stroke/radius) go on the outer border; padding moved to
         // content above.
         style
-            .apply_frame(border(grid((fill, content))))
+            .apply_frame(border(grid((selection_fill, fill, content))))
             .on_pointer_entered(move |_| set_enter.call(true))
             .on_pointer_exited(move || set_exit.call(false))
             .on_tapped(set_view.setter(View::Widget))
             .horizontal_alignment(HorizontalAlignment::Stretch)
             .into()
     });
-    // Home entry: a plain, keyboard-accessible button at the top of the nav
-    // (`home-screen`, `main-content-layout` specs). Built unconditionally, so it
-    // is present even when no widget is loaded; stretched to the column width.
-    let mut nav_children: Vec<Element> = vec![
-        button("Home")
-            .on_click(set_view.setter(View::Home))
-            .horizontal_alignment(HorizontalAlignment::Stretch)
-            .into(),
+
+    // Pinned app title (nav row 0): a plain, non-clickable brand label, always
+    // visible above the scrollable list (`main-content-layout` app-title req).
+    let title = text_block("Prismatic Tools").font_size(20.0).bold();
+
+    // Scrollable tool list (nav row 1): the Home entry, the `Tools` heading, and the
+    // widget card, wrapped in a vertical `scroll_viewer` so an overlong list scrolls
+    // instead of overrunning the pinned bottom group. The `vstack` (a real panel) is
+    // the scroll_viewer's sole child. The `Star` grid cell bounds its height.
+    let mut tool_children: Vec<Element> = vec![
+        nav_button("Home", View::Home),
         text_block("Tools").bold().into(),
     ];
     if let Some(card) = nav_card_el {
-        nav_children.push(card);
+        tool_children.push(card);
     }
-    let nav = vstack(nav_children).spacing(8.0).grid_column(0);
+    let tool_list = scroll_viewer(vstack(tool_children).spacing(8.0));
+
+    // Pinned bottom action group (nav row 2): the Configs entry (a view, highlighted)
+    // above the GitHub external link (never highlighted). GitHub opens the repo page
+    // in the default browser (`main-content-layout` bottom-group reqs).
+    let bottom = vstack((
+        nav_button("Configs", View::Config),
+        HyperlinkButton::new("GitHub")
+            .navigate_uri("https://github.com/Rechdan/Prismatic-Tools")
+            .horizontal_alignment(HorizontalAlignment::Stretch),
+    ))
+    .spacing(8.0);
 
     // Reload action for the config view: rebuild the widget from disk (a fresh VM,
     // so in-memory state resets), then bump the tick to re-render. The label
@@ -218,20 +241,26 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     }
     .grid_column(1);
 
-    // Main region: a persistent two-pane grid — a fixed 200-DIP nav column beside
-    // a star-sized right container that fills the rest (`main-content-layout` spec).
-    let main: Element = grid((nav, right))
+    // Navigation column (nav grid): pinned title, scrollable list, pinned bottom
+    // actions — an `Auto`/`Star`/`Auto` three-row grid whose `Star` middle absorbs
+    // the free height, keeping the title and the actions pinned to the column's top
+    // and bottom edges (`main-content-layout` spec).
+    let nav: Element = grid((
+        title.grid_row(0),
+        tool_list.grid_row(1),
+        bottom.grid_row(2),
+    ))
+    .rows([GridLength::Auto, GridLength::Star(1.0), GridLength::Auto])
+    .row_spacing(8.0)
+    .grid_column(0)
+    .into();
+
+    // Window body: the two-pane grid fills the whole padded window with no header —
+    // a fixed 200-DIP nav column beside a star-sized right container. The inset from
+    // the window border is a `.margin(..)` on the body (WinUI `Grid` has no Padding).
+    grid((nav, right))
         .columns([GridLength::Pixel(200.0), GridLength::Star(1.0)])
         .column_spacing(12.0)
-        .into();
-
-    // Window body: header on top (auto height), main filling the rest (star row).
-    // The inset from the window border is a `.margin(..)` on the body — WinUI
-    // `Grid` has no Padding, so the old outer-column padding becomes a body margin
-    // (`app-header` inset requirement).
-    grid((header.grid_row(0), main.grid_row(1)))
-        .rows([GridLength::Auto, GridLength::Star(1.0)])
-        .row_spacing(12.0)
         .margin(16.0)
         .into()
 }
