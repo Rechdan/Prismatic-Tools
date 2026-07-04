@@ -1,14 +1,5 @@
-# main-content-layout Specification
+## MODIFIED Requirements
 
-## Purpose
-Defines the window body layout: a padded main region driven by reactor's native
-`NavigationView`, which owns a collapsible navigation pane (with a burger toggle and the
-app title) and a content area, plus the explicit selection between the active views the
-content area can show (the home view by default, the active widget, or a placeholder config
-view). The navigation pane surfaces a Home item, the loaded widget as a selectable item, and
-a Configs menu item, with the built-in NavigationView highlight tracking the active view.
-
-## Requirements
 ### Requirement: Window content is inset from the window border
 
 The shell SHALL render the hosted view content (the home view, the active widget, or
@@ -20,29 +11,6 @@ and its toggle follow the platform NavigationView layout.
 - **WHEN** the main window is shown
 - **THEN** there is visible padding between the content area's edges and the rendered
   view content, so the view content is not flush against the window border
-
-### Requirement: Navigation uses the native NavigationView with a burger toggle
-
-The shell SHALL render its navigation with reactor's native `NavigationView` rather
-than a custom two-pane layout. The NavigationView SHALL show a collapsible left pane
-with a visible pane-toggle (burger) button that expands and collapses the pane, and
-the pane SHALL display the app title `Prismatic Tools`. The NavigationView SHALL own
-both the navigation pane and the content area (the active view renders in the content
-area). Navigation items SHALL be rendered as icon+label entries.
-
-#### Scenario: NavigationView pane with a burger toggle is shown
-- **WHEN** the main window is shown
-- **THEN** a NavigationView is rendered with a left pane, a visible burger toggle
-  button, and the pane title `Prismatic Tools`
-
-#### Scenario: Burger toggle collapses and expands the pane
-- **WHEN** the user activates the burger toggle button
-- **THEN** the navigation pane collapses; activating it again expands the pane
-
-#### Scenario: Navigation items show an icon and a label
-- **WHEN** the navigation pane is expanded
-- **THEN** each navigation item (Home and the widget) shows an icon alongside its
-  text label
 
 ### Requirement: Right container shows the selected active view
 
@@ -183,6 +151,31 @@ navigation pane SHALL show **no widget item** (an absent widget is not an error)
 - **THEN** the navigation pane shows no widget item (an absent widget is not surfaced
   as an error)
 
+## ADDED Requirements
+
+### Requirement: Navigation uses the native NavigationView with a burger toggle
+
+The shell SHALL render its navigation with reactor's native `NavigationView` rather
+than a custom two-pane layout. The NavigationView SHALL show a collapsible left pane
+with a visible pane-toggle (burger) button that expands and collapses the pane, and
+the pane SHALL display the app title `Prismatic Tools`. The NavigationView SHALL own
+both the navigation pane and the content area (the active view renders in the content
+area). Navigation items SHALL be rendered as icon+label entries.
+
+#### Scenario: NavigationView pane with a burger toggle is shown
+- **WHEN** the main window is shown
+- **THEN** a NavigationView is rendered with a left pane, a visible burger toggle
+  button, and the pane title `Prismatic Tools`
+
+#### Scenario: Burger toggle collapses and expands the pane
+- **WHEN** the user activates the burger toggle button
+- **THEN** the navigation pane collapses; activating it again expands the pane
+
+#### Scenario: Navigation items show an icon and a label
+- **WHEN** the navigation pane is expanded
+- **THEN** each navigation item (Home and the widget) shows an icon alongside its
+  text label
+
 ### Requirement: Config is reached through a Configs menu item
 
 The shell SHALL surface **Configs** as a normal, tag-routed `NavigationView` menu item
@@ -218,5 +211,58 @@ other item.
 #### Scenario: Selection tracks the active view
 - **WHEN** the user activates a different view (widget or config)
 - **THEN** the NavigationView selection highlight moves to that view's item
-</content>
-</invoke>
+
+## REMOVED Requirements
+
+### Requirement: Main region is a persistent two-pane layout
+
+**Reason**: The custom fixed 200-DIP-column-plus-star-container two-pane grid is
+replaced by reactor's native `NavigationView`, which owns the pane and content area
+and manages the pane width and collapse itself.
+**Migration**: Navigation is now a `NavigationView` (see "Navigation uses the native
+NavigationView with a burger toggle"). The pane is collapsible via the burger toggle
+rather than a fixed 200-DIP column.
+
+### Requirement: Navigation column pins the app title at the top
+
+**Reason**: The pinned app-title label is replaced by the NavigationView's
+`pane_title`, which shows `Prismatic Tools` in the pane.
+**Migration**: The app title is set via the NavigationView pane title (see
+"Navigation uses the native NavigationView with a burger toggle").
+
+### Requirement: Navigation column scrolls its tool list and pins a bottom action group
+
+**Reason**: The custom three-zone (pinned title / scrollable middle / pinned bottom
+group) column is replaced by the NavigationView pane, which scrolls its own item list.
+There is no custom pinned Configs/GitHub group.
+**Migration**: Items live in the NavigationView menu; Configs is a normal menu item
+placed last (see "Config is reached through a Configs menu item"). GitHub is removed
+from navigation (see the removed GitHub requirement below).
+
+### Requirement: Navigation column provides a Configs entry
+
+**Reason**: The custom bottom-group Configs entry is replaced by a normal
+`NavigationView` menu item (the built-in Settings gear is disabled, as its selection
+does not route through the shell's tag mechanism).
+**Migration**: Select the `Configs` menu item to open the config view (see "Config is
+reached through a Configs menu item").
+
+### Requirement: Navigation column highlights the active view's entry
+
+**Reason**: The bespoke selection-fill / hover-fill overlays (crossfaded opacity
+layers on custom entries and the widget card) are replaced by the NavigationView's
+built-in selection highlight.
+**Migration**: Selection highlighting is provided natively (see "NavigationView
+highlights the active view's item"). The custom hover fill on the widget card is
+removed along with the card.
+
+### Requirement: Navigation column provides a link to the project's GitHub page
+
+**Reason**: Reactor's reconciler does not re-assert an unchanged `selected_tag`, and
+`select_nav_item_by_tag` never walks the built-in Settings item, so a nav item that
+opens an external browser cannot cleanly revert its own selection — it would stay
+visually highlighted or, when the prior view was config, fail to restore at all. A
+browser-opening item would also require a new `windows-sys` `Win32_UI_Shell` feature
+(no URL opener exists in the repo). GitHub is therefore removed from navigation.
+**Migration**: The project's GitHub page remains linked from the README home view
+(the `home-screen` capability); there is no GitHub navigation item.

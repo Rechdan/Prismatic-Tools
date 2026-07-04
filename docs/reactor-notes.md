@@ -39,7 +39,18 @@ Idiom (from `solitaire.rs`): `border(vstack((..))).corner_radius(..).background(
 
 Caveat: a tapped `Border` is **not** a `Button` in the accessibility tree (no keyboard focus / Enter activation / "button" narration). Reactor's own game samples ship this pattern anyway; accept or wrap in a focusable control if AT matters.
 
-`NavigationView` doesn't help here — `NavViewItem.content` is string-only too, and it subsumes the whole two-pane layout (owns both the item list and the content pane).
+`NavViewItem.content` is string-only too, so a widget-drawn preview can't live inside a nav item — which is exactly why the shell surfaces widgets by **name** and dropped the widget `nav` preview. But `NavigationView` *is* the shell's navigation now (it subsumes the whole two-pane layout — owns both the item list and the content pane); see the next section.
+
+## `NavigationView` — the shell's navigation (sharp edges)
+
+`src/shell.rs::tool_surface` is a single `NavigationView::new(menu_items, content)`: `.pane_display_mode(NavigationViewPaneDisplayMode::Left)` + `.pane_toggle_button_visible(true)` for the expanded, burger-toggled icon+label pane; `.pane_title("Prismatic Tools")`; `.settings_visible(false)` (the built-in gear is disabled — see below); `.selected_tag(tag)` + `.on_selection_changed(set_tag)` for tag-driven routing. Every destination is a real `NavViewItem::new(label).tag(id).icon(Symbol::…)` (Home, the widget, **Configs**) (icon by value; `Symbol::{Home,Document,Important,Setting}` are real consts). The whole builder chain and `NavigationView.into() → Element` are compile-verified.
+
+Edges that bite:
+
+- **The built-in Settings gear does NOT route through reactor.** Its selection is not delivered as a usable tag by `on_selection_changed` (`select_nav_item_by_tag` never walks it either — `backend/winui/convert.rs`), and reactor's own sample never enables it (`settings_visible(false)`). Runtime-confirmed: clicking the gear fell through to the home view, not config. **So don't use the gear as a destination** — make config a normal tagged menu item (`.tag("config")`) and disable the gear. (This is why the shell's Configs is a menu item, not the gear.)
+- **The reconciler skips an *unchanged* `selected_tag`** (`reconciler/diff_helpers.rs` `diff_props`: `old == new ⇒ no set_prop`). It diffs the previous vdom against the new one, *not* the control's live selection — so a `NavigationView` is **not** a "snap selection back every render" controlled component. The control's selection is corrected only when the tag value you pass actually **changes** to a real menu-item tag. (This is why an item that opens an external browser and tries to revert its own selection — e.g. a GitHub link — can't work: re-passing the prior tag is a no-op and the pane stays stuck. GitHub was dropped for this reason.)
+- **A missing item tag defaults to the item's *content* string, not `""`** (`build_nav_view_item`). So a tag-less item routes by its label. Always set an explicit `.tag(...)`.
+- **Deselection artifact.** Reactor re-applies a changed `menu_items` via `menu.Clear()` + re-append. Clearing a *currently-selected* MenuItem makes WinUI fire `SelectionChanged` with a null item → the handler's `unwrap_or_default()` yields `""`. The shell routes `"" ⇒ config` and keeps its sole `menu_items` mutator (reload) reachable **only from the config view** — so the only item selected during a rebuild is Configs itself, and content stays on config. Keep that invariant: do not add a menu-mutating action reachable from Home or the widget view.
 
 ## `border(child)` + brushes
 

@@ -1,31 +1,4 @@
-# tool-surface Specification
-
-## Purpose
-TBD - created by archiving change bootstrap-tray-shell. Update Purpose after archive.
-## Requirements
-### Requirement: Host renders a tool inside the window
-
-The shell SHALL render exactly one loaded widget's UI inside the right container
-of the main region's persistent two-pane layout (see the `main-content-layout`
-capability), whenever the config view is not active, establishing the host→tool
-rendering surface. The tool is a Lua widget loaded from the `widgets/` folder
-(see the `widget-package` and `widget-runtime` capabilities); no hardcoded tool
-remains.
-
-#### Scenario: Loaded widget is visible
-
-- **WHEN** the main window is shown and the config view is not active
-- **THEN** the loaded widget's UI is rendered inside the right container of the
-  two-pane layout using native Reactor controls
-
-### Requirement: Tool interactivity proves the surface
-
-The loaded widget SHALL include at least one interactive control whose state updates the rendered UI, proving the host→widget render/state loop works end to end.
-
-#### Scenario: Interaction updates UI
-
-- **WHEN** the user interacts with the loaded widget's control (e.g., a button)
-- **THEN** the displayed state changes in response, confirming the render/state loop runs through the widget runtime
+## MODIFIED Requirements
 
 ### Requirement: Loaded widget is reloadable from disk on demand
 
@@ -55,4 +28,3 @@ The shell SHALL provide an action (see the `main-content-layout` capability's co
 
 - **WHEN** the reload action runs and no widget folder exists any longer
 - **THEN** the navigation pane shows no widget item and nothing crashes
-

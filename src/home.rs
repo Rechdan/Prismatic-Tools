@@ -17,8 +17,9 @@ use windows_reactor::*;
 /// `include_str!` edge makes a rebuild pick up README edits; `dev:app` watches it.
 const README: &str = include_str!("../README.md");
 
-/// The home view: the rendered README inside a vertical scroll viewer, sized to
-/// the right container (a Grid star cell bounds its height, so it scrolls).
+/// The home view: the rendered README inside a vertical scroll viewer. The shell's
+/// stretched, padded content wrapper bounds its height, so it scrolls (the wrapper
+/// must stretch, not size-to-content — see `src/shell.rs`).
 pub fn view() -> Element {
     scroll_viewer(render_markdown(README)).into()
 }

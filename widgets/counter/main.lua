@@ -18,19 +18,4 @@ return {
       end),
     }
   end,
-  -- Display-only nav preview: a custom card that mirrors the click count. Shares
-  -- the same `state` as `render`, so clicking in the main view updates it live.
-  -- Returning a `border` root styles the tapped nav card (padding + rounding on
-  -- top of the theme-aware default fill).
-  nav = function(state)
-    return border {
-      padding = 10,
-      corner_radius = 6,
-      vstack {
-        spacing = 4,
-        text('Counter'),
-        text('clicks: ' .. state.count),
-      },
-    }
-  end,
 }

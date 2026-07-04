@@ -11,7 +11,7 @@ mod runtime;
 
 use std::fmt;
 
-pub use runtime::{BorderStyle, LoadedWidget, NavCard};
+pub use runtime::LoadedWidget;
 
 /// Discover the first widget folder (sorted) beside the exe and load it into a
 /// sandboxed VM. Any failure is a [`WidgetError`] the caller renders as text.
@@ -40,10 +40,17 @@ pub enum WidgetError {
 }
 
 impl WidgetError {
-    /// True for the benign empty case (no widget to show), so the surface can
-    /// style it as a plain notice instead of an error.
-    pub fn is_empty_notice(&self) -> bool {
-        matches!(self, WidgetError::NoWidgets(_))
+    /// The failing widget's folder id, if known. A real load failure
+    /// (`Manifest`/`Entry`/`Lua`) carries the id discovered before Lua parsing, so
+    /// the shell can label a broken-widget nav item; `NoWidgets` (nothing to host)
+    /// yields `None`, distinguishing "broken" from "absent".
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            WidgetError::NoWidgets(_) => None,
+            WidgetError::Manifest { id, .. }
+            | WidgetError::Entry { id, .. }
+            | WidgetError::Lua { id, .. } => Some(id),
+        }
     }
 }
 

@@ -2,7 +2,6 @@
 //! the themed window. Window plumbing lives in [`crate::window`].
 
 use std::ptr;
-use std::time::Duration;
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -42,21 +41,11 @@ fn brand_icon() -> Icon {
     Icon::from_rgba(rgba, 16, 16).expect("brand icon")
 }
 
-/// Which view the right container shows (`main-content-layout` spec). `Home` (the
-/// rendered README) is the default landing view; the widget and config views are
-/// reached from the nav widget card and the nav Configs entry, respectively. The
-/// active view's nav entry carries a selection highlight.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum View {
-    Home,
-    Widget,
-    Config,
-}
-
-/// The hosted tool surface: a single left navigation sidebar beside the selected
-/// view (`tool-surface`, `main-content-layout`, `widget-runtime` specs). The first
-/// widget found in `widgets/` (beside the exe) is loaded once; its card lives in the
-/// sidebar and its UI renders in the right container when the widget view is active.
+/// The hosted tool surface: reactor's native `NavigationView` (a burger-toggled left
+/// pane of icon+label items) beside the selected view (`tool-surface`,
+/// `main-content-layout`, `widget-runtime` specs). The first widget found in
+/// `widgets/` (beside the exe) is loaded once; it appears as a pane item (or, on load
+/// failure, a selectable error item) and its UI renders in the content area.
 fn tool_surface(cx: &mut RenderCx) -> Element {
     // No window on launch (`tray-presence` spec): the startup CBT hook already
     // claimed the window at creation — subclassing it to suppress shows, so
@@ -75,147 +64,34 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
     // first render. `tick` is the re-render trigger a widget callback bumps after
     // mutating its Lua state (the widget's own state lives inside its VM).
     let (tick, set_tick) = cx.use_state(0_u32);
-    // Which content the right pane shows: the home view (the rendered README, the
-    // default), the active widget, or the config placeholder. The nav Home entry,
-    // the nav widget card, and the nav Configs entry each select one
-    // (`home-screen`, `main-content-layout` specs).
-    let (view, set_view) = cx.use_state(View::Home);
-    // Hover state for the nav card below; drives its animated highlight fill.
-    let (hovered, set_hovered) = cx.use_state(false);
+    // The active NavigationView selection, as a tag string. Disjoint tag namespaces
+    // route the content area (D1/D6): `"home"` → the README home view (the default
+    // landing view); `"widget:<id>"` → the widget view (its render, or the load-error
+    // text); `"config"` → the config view. Every destination is a real menu item, so
+    // each is selectable *and* highlightable by reactor's `select_nav_item_by_tag`.
+    // The built-in Settings gear is disabled (`settings_visible(false)`): its
+    // selection does not deliver a routable tag through reactor, so Configs is a
+    // normal menu item instead.
+    //
+    // `""` is a deselection artifact, also routed to config: reactor re-applies a
+    // changed `menu_items` via `menu.Clear()`, and clearing a *currently-selected*
+    // MenuItem makes WinUI fire `SelectionChanged` with a null item → `""`. The only
+    // `menu_items` mutator is the reload closure, reachable solely from the config
+    // view, so the only item that can be selected when the menu is rebuilt is Configs
+    // itself — mapping `""` → config keeps the content on config across a
+    // widget-changing reload. Do not add a menu-mutating action reachable from Home or
+    // the widget view without revisiting this.
+    let (tag, set_tag) = cx.use_state("home".to_string());
     // Fully-qualified: `use windows_reactor::*` shadows std `Result` with reactor's
     // one-arg alias, so name the two-arg std form explicitly here.
     let slot = cx.use_ref(None::<std::result::Result<widget::LoadedWidget, widget::WidgetError>>);
     if slot.borrow().is_none() {
         *slot.borrow_mut() = Some(widget::load_first());
     }
-    // The right pane's widget content, plus the nav card (resolved style + preview
-    // content) for the left column. A broken/absent widget only replaces the right
-    // pane and yields no nav card; the header and nav heading stay.
-    let (content, nav_card): (Element, Option<(widget::BorderStyle, Element)>) =
-        match &*slot.borrow() {
-            Some(Ok(w)) => {
-                // The widget's custom preview when it ships a `nav`, else its name
-                // on the default card.
-                let card = w
-                    .nav_render()
-                    .map(|widget::NavCard { style, content }| (style, content))
-                    .unwrap_or_else(|| {
-                        (
-                            widget::BorderStyle::default_card(),
-                            text_block(w.name().to_string()).into(),
-                        )
-                    });
-                (w.render(&set_tick, tick), Some(card))
-            }
-            // A benign "no widget" state reads as a plain notice; a real failure is
-            // marked as an error. Neither yields a nav card.
-            Some(Err(e)) if e.is_empty_notice() => (text_block(e.to_string()).into(), None),
-            Some(Err(e)) => (text_block(format!("⚠ {e}")).into(), None),
-            None => (text_block(String::new()).into(), None),
-        };
-
-    // A navigation entry with a view-driven selection highlight: a real
-    // (keyboard-focusable) `.subtle()` button — transparent at rest — layered over a
-    // soft selection fill whose opacity is driven declaratively by the active `view`.
-    // No toggle/checked control state, so re-selecting the already-active entry is a
-    // harmless no-op and the highlight never desyncs (a controlled `ToggleButton`
-    // would deselect itself on re-click). Grid children overlap at cell (0,0); the
-    // button is the later child, so it sits above the fill and receives clicks
-    // (`main-content-layout` selection requirement).
-    let nav_button = |label: &str, target: View| -> Element {
-        let selection_fill = border(text_block(""))
-            .background(ThemeRef::ControlFill)
-            .corner_radius(4.0)
-            .horizontal_alignment(HorizontalAlignment::Stretch)
-            .vertical_alignment(VerticalAlignment::Stretch)
-            .opacity(if view == target { 1.0 } else { 0.0 })
-            .with_opacity_transition(Duration::from_millis(150));
-        let btn = button(label)
-            .subtle()
-            .on_click(set_view.setter(target))
-            .horizontal_alignment(HorizontalAlignment::Stretch);
-        grid((selection_fill, btn)).into()
-    };
-
-    // The loaded widget's card: a full-width clickable tile (tapped `border`)
-    // activating the widget view, showing the widget's custom preview or its name.
-    // It layers, beneath the content, a persistent selection fill (lit when the
-    // widget view is active) and, above that, a transient hover fill — the two
-    // compose. No widget → no card (`main-content-layout` spec).
-    let nav_card_el: Option<Element> = nav_card.map(|(style, content)| {
-        let radius = style.corner_radius().unwrap_or(0.0);
-        // Pad the content, not the card frame, so the background layers below span
-        // the whole card (only the text is inset).
-        let content = match style.padding() {
-            Some(p) => content.padding(Thickness::uniform(p)),
-            None => content,
-        };
-        // Selection fill: a ControlFill layer covering the full card, lit when the
-        // widget view is active. Distinct brush from the hover's SubtleFill so the
-        // two read differently and compose.
-        let selection_fill = border(text_block(""))
-            .background(ThemeRef::ControlFill)
-            .corner_radius(radius)
-            .horizontal_alignment(HorizontalAlignment::Stretch)
-            .vertical_alignment(VerticalAlignment::Stretch)
-            .opacity(if view == View::Widget { 1.0 } else { 0.0 })
-            .with_opacity_transition(Duration::from_millis(150));
-        // Hover highlight: a SubtleFill layer above the selection fill, beneath the
-        // content, whose opacity fades in/out (brush color can't tween, so we
-        // crossfade opacity). Its radius matches the card's.
-        let fill = border(text_block(""))
-            .background(ThemeRef::SubtleFill)
-            .corner_radius(radius)
-            .horizontal_alignment(HorizontalAlignment::Stretch)
-            .vertical_alignment(VerticalAlignment::Stretch)
-            .opacity(if hovered { 1.0 } else { 0.0 })
-            .with_opacity_transition(Duration::from_millis(150));
-        let set_enter = set_hovered.clone();
-        let set_exit = set_hovered.clone();
-        // Host owns behavior (applied last, not Lua-overridable): hover tracking,
-        // tap-to-activate the widget view, and full-column stretch. Frame props
-        // (background/stroke/radius) go on the outer border; padding moved to
-        // content above.
-        style
-            .apply_frame(border(grid((selection_fill, fill, content))))
-            .on_pointer_entered(move |_| set_enter.call(true))
-            .on_pointer_exited(move || set_exit.call(false))
-            .on_tapped(set_view.setter(View::Widget))
-            .horizontal_alignment(HorizontalAlignment::Stretch)
-            .into()
-    });
-
-    // Pinned app title (nav row 0): a plain, non-clickable brand label, always
-    // visible above the scrollable list (`main-content-layout` app-title req).
-    let title = text_block("Prismatic Tools").font_size(20.0).bold();
-
-    // Scrollable tool list (nav row 1): the Home entry, the `Tools` heading, and the
-    // widget card, wrapped in a vertical `scroll_viewer` so an overlong list scrolls
-    // instead of overrunning the pinned bottom group. The `vstack` (a real panel) is
-    // the scroll_viewer's sole child. The `Star` grid cell bounds its height.
-    let mut tool_children: Vec<Element> = vec![
-        nav_button("Home", View::Home),
-        text_block("Tools").bold().into(),
-    ];
-    if let Some(card) = nav_card_el {
-        tool_children.push(card);
-    }
-    let tool_list = scroll_viewer(vstack(tool_children).spacing(8.0));
-
-    // Pinned bottom action group (nav row 2): the Configs entry (a view, highlighted)
-    // above the GitHub external link (never highlighted). GitHub opens the repo page
-    // in the default browser (`main-content-layout` bottom-group reqs).
-    let bottom = vstack((
-        nav_button("Configs", View::Config),
-        HyperlinkButton::new("GitHub")
-            .navigate_uri("https://github.com/Rechdan/Prismatic-Tools")
-            .horizontal_alignment(HorizontalAlignment::Stretch),
-    ))
-    .spacing(8.0);
 
     // Reload action for the config view: rebuild the widget from disk (a fresh VM,
     // so in-memory state resets), then bump the tick to re-render. The label
-    // pluralizes by the installed-widget count; reloading leaves the active view
+    // pluralizes by the installed-widget count; reloading leaves the active tag
     // unchanged (`tool-surface`, `main-content-layout` specs).
     let reload_label = if widget::count() == 1 {
         "Reload widget"
@@ -232,36 +108,74 @@ fn tool_surface(cx: &mut RenderCx) -> Element {
         }
     };
 
-    // Right container: exactly one active view — the home README (default), the
-    // active widget, or the config view (which hosts the reload action).
-    let right: Element = match view {
-        View::Home => home::view(),
-        View::Widget => content,
-        View::Config => config_view(reload_label, reload),
-    }
-    .grid_column(1);
+    // Build the pane's menu items and resolve the widget-view content in one pass.
+    // Home is always present. On a successful load the widget appears by name with a
+    // Document icon; on a real load failure it appears as a selectable error item
+    // labeled with its folder id (`Important` icon) whose content is the error text;
+    // an absent widget (`NoWidgets`) adds no item (`main-content-layout`, D7).
+    let mut menu_items: Vec<NavViewItem> =
+        vec![NavViewItem::new("Home").tag("home").icon(Symbol::Home)];
+    let widget_content: Element = match &*slot.borrow() {
+        Some(Ok(w)) => {
+            menu_items.push(
+                NavViewItem::new(w.name())
+                    .tag(format!("widget:{}", w.id()))
+                    .icon(Symbol::Document),
+            );
+            w.render(&set_tick, tick)
+        }
+        Some(Err(e)) => match e.id() {
+            Some(id) => {
+                menu_items.push(
+                    NavViewItem::new(id)
+                        .tag(format!("widget:{id}"))
+                        .icon(Symbol::Important),
+                );
+                text_block(format!("⚠ {e}")).into()
+            }
+            // Absent widget: a benign notice in the content area, no pane item.
+            None => text_block(e.to_string()).into(),
+        },
+        None => text_block(String::new()).into(),
+    };
+    // Configs is a normal, tag-routed menu item (not the built-in gear), placed last.
+    // The `Setting` glyph keeps it reading as settings.
+    menu_items.push(NavViewItem::new("Configs").tag("config").icon(Symbol::Setting));
 
-    // Navigation column (nav grid): pinned title, scrollable list, pinned bottom
-    // actions — an `Auto`/`Star`/`Auto` three-row grid whose `Star` middle absorbs
-    // the free height, keeping the title and the actions pinned to the column's top
-    // and bottom edges (`main-content-layout` spec).
-    let nav: Element = grid((
-        title.grid_row(0),
-        tool_list.grid_row(1),
-        bottom.grid_row(2),
-    ))
-    .rows([GridLength::Auto, GridLength::Star(1.0), GridLength::Auto])
-    .row_spacing(8.0)
-    .grid_column(0)
-    .into();
+    // Route the content area by the current tag (mirrors the old `match view`).
+    // `"config"` (the Configs item) or `""` (a reload deselection artifact) → the
+    // config view; a `widget:*` tag → the widget content; `"home"` and any other value
+    // fall back to the README home view.
+    let right_content: Element = match tag.as_str() {
+        "config" | "" => config_view(reload_label, reload),
+        t if t.starts_with("widget:") => widget_content,
+        _ => home::view(),
+    };
 
-    // Window body: the two-pane grid fills the whole padded window with no header —
-    // a fixed 200-DIP nav column beside a star-sized right container. The inset from
-    // the window border is a `.margin(..)` on the body (WinUI `Grid` has no Padding).
-    grid((nav, right))
-        .columns([GridLength::Pixel(200.0), GridLength::Star(1.0)])
-        .column_spacing(12.0)
-        .margin(16.0)
+    // Inset every view from the content-area edges (replacing the deleted body
+    // `.margin(16)`). One padded wrapper so the inset can't drift; it MUST stretch to
+    // fill the content cell — a size-to-content wrapper would hand `home::view()`'s
+    // `scroll_viewer` an unbounded height and the README would stop scrolling
+    // (`docs/reactor-notes.md`: a `scroll_viewer` needs a bounded cell).
+    let padded = border(right_content)
+        .padding(Thickness::uniform(16.0))
+        .horizontal_alignment(HorizontalAlignment::Stretch)
+        .vertical_alignment(VerticalAlignment::Stretch);
+
+    // Native NavigationView (D1/D2): a Left-mode, burger-toggled pane titled
+    // "Prismatic Tools". The built-in Settings gear is hidden (`settings_visible(false)`)
+    // — Configs is a normal menu item instead, because the gear's selection does not
+    // route through reactor's tag mechanism. `selected_tag` echoes our state
+    // (highlighting the active item, Home on first paint); the setter is passed
+    // *directly* to `on_selection_changed` (a fresh closure each render would churn the
+    // WinUI handler) and stores whatever tag was selected.
+    NavigationView::new(menu_items, padded)
+        .selected_tag(tag.clone())
+        .on_selection_changed(set_tag)
+        .pane_display_mode(NavigationViewPaneDisplayMode::Left)
+        .pane_toggle_button_visible(true)
+        .settings_visible(false)
+        .pane_title("Prismatic Tools")
         .into()
 }
 

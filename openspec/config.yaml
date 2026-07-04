@@ -24,25 +24,20 @@ context: |
 
   Architecture (thin Rust modules, all `cfg(windows)`-gated):
   - `src/shell.rs` — single-instance guard (named mutex), tray presence, and the
-    tool-rendering surface: a single left navigation sidebar beside a right
-    container, inset from the window edge via a margin, with no header row. The
-    window body is a two-pane grid — a fixed 200-DIP nav column + a star-sized right
-    container. The nav column is a three-row layout: a pinned app-title label
-    (`Prismatic Tools`) on top; a scrollable middle holding an accessible `Home`
-    entry, a `Tools` heading, and the loaded widget as a full-width clickable card;
-    and a pinned bottom group holding a `Configs` entry and a `GitHub` repo-link. The
-    right container shows one of three views — the README home view (default), the
-    active widget, or a config view. The nav card is a tapped `border` rendering the
-    widget's optional custom preview or, by default, its name, layering a persistent
-    `ControlFill` selection fill (lit when the widget view is active) beneath a
-    `SubtleFill` hover fill, both animated via opacity crossfade. Active-view
-    selection (a `View { Home, Widget, Config }` state, default `Home`): the nav
-    `Configs` entry activates the config view, the nav `Home` entry activates the
-    home view, and the nav card's `on_tapped` activates the widget view (not a
-    toggle); the active entry carries a soft selection highlight. The two-pane
-    sidebar layout is the `main-content-layout` capability
-    (`openspec/specs/main-content-layout/`); the README home view is the
-    `home-screen` capability (`openspec/specs/home-screen/`).
+    tool-rendering surface, built on reactor's native `NavigationView` (a burger-
+    toggled left pane titled `Prismatic Tools`; there is no custom two-pane grid or
+    header row). The pane holds icon+label items: `Home`, the loaded widget (by its
+    manifest name), and a `Configs` item last; a widget that fails to load shows a
+    selectable error item instead, and an absent widget shows no item. The built-in
+    Settings gear is disabled (its selection does not route through reactor) and there
+    is no GitHub item (the README home view keeps the project link). The active view —
+    the README home view (default), the active widget, or the config placeholder —
+    renders in the NavigationView content area, inset by one stretched padded wrapper.
+    Selection is a single tag string that drives `selected_tag`/`on_selection_changed`:
+    `"home"`, `"widget:<id>"`, `"config"`, plus an empty-string deselection artifact
+    also routed to config. The nav layout is the `main-content-layout` capability
+    (`openspec/specs/main-content-layout/`); the README home view is the `home-screen`
+    capability (`openspec/specs/home-screen/`).
   - `src/home.rs` — the `Home` view (the shell's default). Renders the project
     `README.md`, bundled into the exe via `include_str!` (a compile input — an edit
     needs a rebuild), as block-level markdown parsed by `pulldown-cmark`; inline
@@ -60,12 +55,12 @@ context: |
     and reads its Lua entry (its count backs the public `widget::count()` used
     for the reload label);
     `runtime.rs` runs it in a sandboxed `mlua` VM (safe libs only — no os/io/debug;
-    `require` scoped to the widget folder) enforcing the `{ state, render, nav? }`
-    contract — `nav(state)` is an optional display-only preview for the nav card,
-    sharing the same `state` as `render` — and mapping the declarative UI table
-    (`vstack`/`hstack`/`text`/`button`/`border`) onto reactor elements. The config
-    view hosts a `Reload widget(s)` action (reloads from disk, resets in-memory
-    state). Capabilities `openspec/specs/widget-package/` + `widget-runtime/`.
+    `require` scoped to the widget folder) enforcing the `{ state, render }`
+    contract and mapping the declarative UI table
+    (`vstack`/`hstack`/`text`/`button`/`border`) onto reactor elements. The widget is
+    surfaced in navigation by its manifest name only (no widget-drawn nav preview).
+    The config view hosts a `Reload widget(s)` action (reloads from disk, resets
+    in-memory state). Capabilities `openspec/specs/widget-package/` + `widget-runtime/`.
 
   Tray-resident lifecycle: starts hidden, the tray toggles the window, the
   title-bar X hides to tray (does not exit), a single-instance mutex drops
